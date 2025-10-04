@@ -12,6 +12,9 @@ from torchvision.utils import save_image
 from betterconf import Config, field
 from betterconf.config import AbstractProvider
 from betterconf.caster import to_int, to_bool, to_list, to_float
+
+from terrain_dataset import TerrainDataset
+
 import json
 
 HYPERPARAMS_FILE = r"C:\Users\79140\PycharmProjects\TerrainVAE\hyperparams.json"
@@ -40,6 +43,7 @@ class HyperparamConfig(Config):
     img_size = field("img_size", provider=provider, caster=to_int)
     data_path = field("data_path", provider=provider)
     latent_dim = field("latent_dim", provider=provider, caster=to_int)
+    learning_rate = field("learning_rate", provider=provider, caster=to_float)
 
 
 hpcfg = HyperparamConfig()
@@ -58,13 +62,24 @@ else:
 print(f"Using device: {device}")
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_accel else {}
-train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('/data', train=True, download=True,
-                   transform=transforms.ToTensor()),
-    batch_size=hpcfg.batch_size, shuffle=True, **kwargs)
-test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('/data', train=False, transform=transforms.ToTensor()),
-    batch_size=hpcfg.batch_size, shuffle=False, **kwargs)
+
+transform = transforms.Compose([
+            transforms.Resize((hpcfg.img_size, hpcfg.img_size)) if isinstance(hpcfg.img_size, int)
+                                                                else transforms.Resize(hpcfg.img_size),
+            transforms.ToTensor()])
+
+dataset = TerrainDataset(root_dir=hpcfg.data_path,
+                         transform=transform)
+
+train_loader = torch.utils.data.DataLoader(dataset,
+                                           batch_size=hpcfg.batch_size,
+                                           shuffle=True,
+                                           drop_last=True)
+
+test_loader = torch.utils.data.DataLoader(dataset,
+                                          batch_size=hpcfg.batch_size,
+                                          shuffle=False,
+                                          drop_last=True)
 
 
 class VAE(nn.Module):
@@ -72,15 +87,18 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
 
         self.enc1 = nn.Linear(hpcfg.img_size**2, 400)
-        self.enc21 = nn.Linear(400, hpcfg.latent_dim)
-        self.enc22 = nn.Linear(400, hpcfg.latent_dim)
+        self.enc2 = nn.Linear(400, 400)
+        self.enc31 = nn.Linear(400, hpcfg.latent_dim)
+        self.enc32 = nn.Linear(400, hpcfg.latent_dim)
         
         self.dec1 = nn.Linear(hpcfg.latent_dim, 400)
-        self.dec2 = nn.Linear(400, hpcfg.img_size**2)
+        self.dec2 = nn.Linear(400, 400)
+        self.dec3 = nn.Linear(400, hpcfg.img_size**2)
 
     def encode(self, x):
-        h1 = F.relu(self.enc1(x))
-        return self.enc21(h1), self.enc22(h1)
+        xh = F.relu(self.enc1(x))
+        xh = F.relu(self.enc2(xh))
+        return self.enc31(xh), self.enc32(xh)
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5*logvar)
@@ -88,8 +106,9 @@ class VAE(nn.Module):
         return mu + eps*std
 
     def decode(self, z):
-        h3 = F.relu(self.dec1(z))
-        return torch.sigmoid(self.dec2(h3))
+        xh = F.relu(self.dec1(z))
+        xh = F.relu(self.dec2(xh))
+        return torch.sigmoid(self.dec3(xh))
 
     def forward(self, x):
         mu, logvar = self.encode(x.view(-1, hpcfg.img_size**2))
@@ -98,7 +117,7 @@ class VAE(nn.Module):
 
 
 model = VAE().to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=hpcfg.learning_rate)
 
 
 # Reconstruction + KL divergence losses summed over all elements and batch
@@ -109,27 +128,29 @@ def loss_function(recon_x, x, mu, logvar):
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-    return BCE + KLD
+    return BCE + KLD, BCE, KLD
 
 
 def train(epoch):
     model.train()
     train_loss = 0
-    for batch_idx, (data, _) in enumerate(train_loader):
+    for batch_idx, data in enumerate(train_loader):
         data = data.to(device)
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(data)
-        loss = loss_function(recon_batch, data, mu, logvar)
+        loss, _, KLD = loss_function(recon_batch, data, mu, logvar)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
         if batch_idx % hpcfg.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\t KLD: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader),
-                loss.item() / len(data)))
+                loss.item() / len(data),
+                KLD.item() / len(data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
           epoch, train_loss / len(train_loader.dataset)))
@@ -139,10 +160,11 @@ def test(epoch):
     model.eval()
     test_loss = 0
     with torch.no_grad():
-        for i, (data, _) in enumerate(test_loader):
+        for i, data in enumerate(test_loader):
             data = data.to(device)
             recon_batch, mu, logvar = model(data)
-            test_loss += loss_function(recon_batch, data, mu, logvar).item()
+            loss, _, KLD = loss_function(recon_batch, data, mu, logvar)
+            test_loss += loss.item()
             if i == 0:
                 n = min(data.size(0), 8)
                 comparison = torch.cat([data[:n],
