@@ -37,6 +37,7 @@ class HyperparamConfig(Config):
     epochs = field("epochs", provider=provider, caster=to_int)
     seed = field("seed", provider=provider, caster=to_int)
     log_interval = field("log_interval", provider=provider, caster=to_int)
+    img_size = field("img_size", provider=provider, caster=to_int)
 
 
 hpcfg = HyperparamConfig()
@@ -68,11 +69,11 @@ class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
 
-        self.fc1 = nn.Linear(784, 400)
+        self.fc1 = nn.Linear(hpcfg.img_size**2, 400)
         self.fc21 = nn.Linear(400, 20)
         self.fc22 = nn.Linear(400, 20)
         self.fc3 = nn.Linear(20, 400)
-        self.fc4 = nn.Linear(400, 784)
+        self.fc4 = nn.Linear(400, hpcfg.img_size**2)
 
     def encode(self, x):
         h1 = F.relu(self.fc1(x))
@@ -88,7 +89,7 @@ class VAE(nn.Module):
         return torch.sigmoid(self.fc4(h3))
 
     def forward(self, x):
-        mu, logvar = self.encode(x.view(-1, 784))
+        mu, logvar = self.encode(x.view(-1, hpcfg.img_size**2))
         z = self.reparameterize(mu, logvar)
         return self.decode(z), mu, logvar
 
@@ -99,7 +100,7 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
+    BCE = F.binary_cross_entropy(recon_x, x.view(-1, hpcfg.img_size**2), reduction='sum')
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -142,7 +143,7 @@ def test(epoch):
             if i == 0:
                 n = min(data.size(0), 8)
                 comparison = torch.cat([data[:n],
-                                      recon_batch.view(hpcfg.batch_size, 1, 28, 28)[:n]])
+                                      recon_batch.view(hpcfg.batch_size, 1, hpcfg.img_size, hpcfg.img_size)[:n]])
                 os.makedirs('results', exist_ok=True)
                 save_image(comparison.cpu(),
                          'results/reconstruction_' + str(epoch) + '.png', nrow=n)
@@ -158,5 +159,5 @@ if __name__ == "__main__":
         with torch.no_grad():
             sample = torch.randn(64, 20).to(device)
             sample = model.decode(sample).cpu()
-            save_image(sample.view(64, 1, 28, 28),
+            save_image(sample.view(64, 1, hpcfg.img_size, hpcfg.img_size),
                        'results/sample_' + str(epoch) + '.png')

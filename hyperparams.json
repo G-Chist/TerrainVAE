@@ -3,5 +3,6 @@
   "no_accel": "False",
   "epochs": "10",
   "seed": "1",
-  "log_interval": "10"
+  "log_interval": "10",
+  "img_size": "28"
 }
