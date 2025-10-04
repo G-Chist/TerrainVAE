@@ -38,6 +38,8 @@ class HyperparamConfig(Config):
     seed = field("seed", provider=provider, caster=to_int)
     log_interval = field("log_interval", provider=provider, caster=to_int)
     img_size = field("img_size", provider=provider, caster=to_int)
+    data_path = field("data_path", provider=provider)
+    latent_dim = field("latent_dim", provider=provider, caster=to_int)
 
 
 hpcfg = HyperparamConfig()
@@ -69,15 +71,16 @@ class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
 
-        self.fc1 = nn.Linear(hpcfg.img_size**2, 400)
-        self.fc21 = nn.Linear(400, 20)
-        self.fc22 = nn.Linear(400, 20)
-        self.fc3 = nn.Linear(20, 400)
-        self.fc4 = nn.Linear(400, hpcfg.img_size**2)
+        self.enc1 = nn.Linear(hpcfg.img_size**2, 400)
+        self.enc21 = nn.Linear(400, hpcfg.latent_dim)
+        self.enc22 = nn.Linear(400, hpcfg.latent_dim)
+        
+        self.dec1 = nn.Linear(hpcfg.latent_dim, 400)
+        self.dec2 = nn.Linear(400, hpcfg.img_size**2)
 
     def encode(self, x):
-        h1 = F.relu(self.fc1(x))
-        return self.fc21(h1), self.fc22(h1)
+        h1 = F.relu(self.enc1(x))
+        return self.enc21(h1), self.enc22(h1)
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5*logvar)
@@ -85,8 +88,8 @@ class VAE(nn.Module):
         return mu + eps*std
 
     def decode(self, z):
-        h3 = F.relu(self.fc3(z))
-        return torch.sigmoid(self.fc4(h3))
+        h3 = F.relu(self.dec1(z))
+        return torch.sigmoid(self.dec2(h3))
 
     def forward(self, x):
         mu, logvar = self.encode(x.view(-1, hpcfg.img_size**2))
@@ -157,7 +160,7 @@ if __name__ == "__main__":
         train(epoch)
         test(epoch)
         with torch.no_grad():
-            sample = torch.randn(64, 20).to(device)
+            sample = torch.randn(64, hpcfg.latent_dim).to(device)
             sample = model.decode(sample).cpu()
             save_image(sample.view(64, 1, hpcfg.img_size, hpcfg.img_size),
                        'results/sample_' + str(epoch) + '.png')
