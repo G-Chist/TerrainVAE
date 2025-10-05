@@ -1,7 +1,8 @@
 import os
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from PIL import Image, ImageOps
 from torchvision import transforms
+import torch.utils
 
 
 class TerrainDataset(Dataset):
@@ -41,3 +42,43 @@ class TerrainDataset(Dataset):
             image = self.transform(image)
 
         return image
+    
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
+    path = "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_cropped"
+    img_size = 512
+    batch_size = 1
+
+    transform = transforms.Compose([
+        transforms.Resize((img_size, img_size)) if isinstance(img_size, int)
+        else transforms.Resize(img_size),
+        transforms.ToTensor()])
+
+    dataset = TerrainDataset(root_dir=path,
+                             transform=transform)
+
+    train_loader = torch.utils.data.DataLoader(dataset,
+                                               batch_size=batch_size,
+                                               shuffle=True,
+                                               drop_last=True)
+
+    # Get one batch
+    imgs = next(iter(train_loader))  # shape: [b, 1, img_size, img_size]
+
+    # Convert to grid display
+    b = imgs.size(0)
+    fig, axes = plt.subplots(1, b, figsize=(b * 2, 2))
+    if b == 1:
+        axes = [axes]
+
+    for i, ax in enumerate(axes):
+        img = imgs[i, 0].cpu()  # remove channel dimension
+        ax.imshow(img, cmap='gray')
+        ax.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+

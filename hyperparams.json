@@ -4,8 +4,8 @@
   "epochs": "25",
   "seed": "1",
   "log_interval": "10",
-  "img_size": "56",
+  "img_size": "512",
   "data_path": "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_cropped",
-  "latent_dim": "10",
+  "latent_dim": "64",
   "learning_rate": "0.00001"
 }
