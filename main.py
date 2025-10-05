@@ -63,13 +63,8 @@ print(f"Using device: {device}")
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_accel else {}
 
-transform = transforms.Compose([
-            transforms.Resize((hpcfg.img_size, hpcfg.img_size)) if isinstance(hpcfg.img_size, int)
-                                                                else transforms.Resize(hpcfg.img_size),
-            transforms.ToTensor()])
-
 dataset = TerrainDataset(root_dir=hpcfg.data_path,
-                         transform=transform)
+                         img_size=hpcfg.img_size)
 
 train_loader = torch.utils.data.DataLoader(dataset,
                                            batch_size=hpcfg.batch_size,

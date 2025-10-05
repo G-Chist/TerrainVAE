@@ -1,84 +1,71 @@
 import os
-from torch.utils.data import Dataset, DataLoader
-from PIL import Image, ImageOps
+import torch
+from torch.utils.data import Dataset
 from torchvision import transforms
-import torch.utils
+from torchvision.io import read_image
+from torchvision.transforms.functional import rgb_to_grayscale, rotate
 
 
 class TerrainDataset(Dataset):
-    """Dataset for grayscale heightmaps with 0, 90, 180, 270 degree rotations."""
+    """Dataset for grayscale heightmaps with 0, 90, 180, 270 degree rotations (PyTorch-native)."""
 
-    def __init__(self, root_dir, transform=transforms.Compose([
-            transforms.Resize((512, 512)) if isinstance(512, int) else transforms.Resize(512),
-            transforms.ToTensor(),
-        ])):
-
+    def __init__(self, root_dir, img_size=512):
         self.root_dir = root_dir
-        self.transform = transform
         self.img_files = [f for f in os.listdir(root_dir) if f.lower().endswith('.png')]
+        self.img_size = img_size
+
+        self.preprocess = transforms.Compose([
+            transforms.Resize((img_size, img_size)),
+            transforms.Grayscale(num_output_channels=1),
+            transforms.ToTensor(),
+        ])
 
     def __len__(self):
-        # Each image contributes 4 rotated versions
         return len(self.img_files) * 4
 
     def __getitem__(self, idx):
-        # Map global idx to image and rotation
         img_idx = idx // 4
         rot_idx = idx % 4
-
         img_path = os.path.join(self.root_dir, self.img_files[img_idx])
-        image = Image.open(img_path).convert("L")
-        image = ImageOps.exif_transpose(image)
 
-        # Apply rotation
+        # Read image (tensor: [C,H,W], dtype uint8)
+
+        img = rgb_to_grayscale(read_image(img_path).float())  # now [1,H,W]
+        img /= 255.0  # normalize [0,1]
+
+        # Resize to target size
+        img = transforms.functional.resize(img, [self.img_size, self.img_size])
+
+        # Rotate tensor (no PIL)
         if rot_idx == 1:
-            image = image.rotate(90, expand=True)
+            img = rotate(img, 90)
         elif rot_idx == 2:
-            image = image.rotate(180, expand=True)
+            img = rotate(img, 180)
         elif rot_idx == 3:
-            image = image.rotate(270, expand=True)
+            img = rotate(img, 270)
 
-        if self.transform:
-            image = self.transform(image)
+        return img / 255
 
-        return image
-    
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+    from torch.utils.data import DataLoader
 
-    path = "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_cropped"
-    img_size = 512
-    batch_size = 1
+    path = r"C:\Users\79140\PycharmProjects\procedural-terrain-generation\data\datapoints_png_cropped"
+    img_size = 28
+    batch_size = 8
 
-    transform = transforms.Compose([
-        transforms.Resize((img_size, img_size)) if isinstance(img_size, int)
-        else transforms.Resize(img_size),
-        transforms.ToTensor()])
+    dataset = TerrainDataset(root_dir=path, img_size=img_size)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    dataset = TerrainDataset(root_dir=path,
-                             transform=transform)
+    print(len(loader))
 
-    train_loader = torch.utils.data.DataLoader(dataset,
-                                               batch_size=batch_size,
-                                               shuffle=True,
-                                               drop_last=True)
+    imgs = next(iter(loader))  # shape: [b, 1, H, W]
 
-    # Get one batch
-    imgs = next(iter(train_loader))  # shape: [b, 1, img_size, img_size]
-
-    # Convert to grid display
-    b = imgs.size(0)
-    fig, axes = plt.subplots(1, b, figsize=(b * 2, 2))
-    if b == 1:
-        axes = [axes]
-
+    fig, axes = plt.subplots(1, batch_size, figsize=(batch_size * 2, 2))
     for i, ax in enumerate(axes):
-        img = imgs[i, 0].cpu()  # remove channel dimension
-        ax.imshow(img, cmap='gray')
-        ax.axis('off')
-
-    plt.tight_layout()
+        ax.imshow(imgs[i, 0].cpu(), cmap="gray")
+        print(imgs[i, 0].cpu())
+        ax.axis("off")
     plt.show()
-
 
