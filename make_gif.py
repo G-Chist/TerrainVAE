@@ -31,7 +31,7 @@ try:
 except FileNotFoundError:
     # Handle cases where the specified directory does not exist.
     print(f"Error: The folder '{img_dir}' was not found.")
-    exit() # Stop the script if the folder is missing.
+    exit()  # Stop the script if the folder is missing.
 
 # Sort the images using natural sort order.
 # This ensures that 'frame10.png' comes after 'frame9.png', not after 'frame1.png'.
