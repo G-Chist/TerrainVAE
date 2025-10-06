@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.io import read_image
-from torchvision.transforms.functional import rgb_to_grayscale, rotate
+from torchvision.transforms.functional import rgb_to_grayscale, rotate, resize
 
 
 class TerrainDataset(Dataset):
@@ -12,13 +12,9 @@ class TerrainDataset(Dataset):
     def __init__(self, root_dir, img_size=512):
         self.root_dir = root_dir
         self.img_files = [f for f in os.listdir(root_dir) if f.lower().endswith('.png')]
+        if len(self.img_files) == 0:
+            raise ValueError(f"No PNG files found in {root_dir}")
         self.img_size = img_size
-
-        self.preprocess = transforms.Compose([
-            transforms.Resize((img_size, img_size)),
-            transforms.Grayscale(num_output_channels=1),
-            transforms.ToTensor(),
-        ])
 
     def __len__(self):
         return len(self.img_files) * 4
@@ -28,15 +24,12 @@ class TerrainDataset(Dataset):
         rot_idx = idx % 4
         img_path = os.path.join(self.root_dir, self.img_files[img_idx])
 
-        # Read image (tensor: [C,H,W], dtype uint8)
+        # Read and preprocess
+        img = read_image(img_path)  # [C,H,W], uint8 0-255
+        img = rgb_to_grayscale(img)  # [1,H,W]
+        img = resize(img, [self.img_size, self.img_size])  # [1,img_size,img_size]
 
-        img = rgb_to_grayscale(read_image(img_path).float())  # now [1,H,W]
-        img /= 255.0  # normalize [0,1]
-
-        # Resize to target size
-        img = transforms.functional.resize(img, [self.img_size, self.img_size])
-
-        # Rotate tensor (no PIL)
+        # Apply rotation
         if rot_idx == 1:
             img = rotate(img, 90)
         elif rot_idx == 2:
@@ -44,7 +37,13 @@ class TerrainDataset(Dataset):
         elif rot_idx == 3:
             img = rotate(img, 270)
 
-        return img / 255
+        # Convert to float before min/max operations
+        img = img.float()
+
+        img = (img - img.min()) / (img.max() - img.min() + 1e-8)  # normalize 0-1 safely
+        img = torch.clamp(img, 0.0, 1.0)  # ensure no out-of-bounds values
+
+        return img
 
 
 if __name__ == "__main__":
