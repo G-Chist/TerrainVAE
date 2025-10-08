@@ -46,19 +46,40 @@ def classify_terrain_tensor(H, eps=1e-5):
     n_lt = lt.sum(0)
 
     # Classify per pixel
-    feat = torch.full(center.shape, 8, dtype=torch.int64, device=device)  # default footslope
+    feat = torch.full(center.shape, 10, dtype=torch.int64, device=device)  # default class 10
 
-    feat[n_eq == 8] = 0   # flat
-    feat[n_lt == 8] = 1   # peak
-    feat[n_gt == 8] = 6   # pit
-    feat[n_eq >= 6] = 5   # slope
-    feat[n_gt >= 6] = 7   # valley
-    feat[n_lt >= 6] = 2   # ridge
+    feat[n_eq == 8] = 0  # flat
+    feat[n_lt == 8] = 1  # peak
+    feat[n_gt == 8] = 6  # pit
+    feat[n_lt == 6] = 2  # ridge
+    feat[(n_lt == 3) & (n_gt == 5)] = 3  # shoulder
+    feat[(n_lt == 4) & (n_gt == 4)] = 4  # spur
+    feat[n_eq >= 6] = 5  # slope
+    feat[n_gt == 6] = 7  # valley
     feat[(n_gt >= 4) & ((diffs.abs() > 0.1).sum(0) >= 4)] = 9  # hollow
-    feat[(n_lt >= 4) & ((diffs.abs() > 0.1).sum(0) >= 4)] = 4  # spur
-    feat[(n_lt >= 3) & (n_gt >= 3)] = 3  # shoulder
+    feat[(n_eq == 5) & (n_gt == 3)] = 8  # footslope
 
     return feat[0,0]
+
+
+def count_features_by_class(feat_tensor, num_classes=11):
+    """
+    Count the number of pixels belonging to each terrain feature class.
+
+    Parameters
+    ----------
+    feat_tensor : torch.Tensor
+        2D tensor of integers 0-10 representing terrain features
+    num_classes : int
+        Total number of classes (default 11)
+
+    Returns
+    -------
+    dict
+        Mapping from class index to count
+    """
+    counts = torch.bincount(feat_tensor.flatten(), minlength=num_classes)
+    return {i: int(counts[i]) for i in range(num_classes)}
 
 
 if __name__ == "__main__":
@@ -100,15 +121,27 @@ if __name__ == "__main__":
 
         plt.figure(figsize=(10, 4))
 
-        plt.subplot(1, 2, 1)
+        plt.subplot(1, 3, 1)
         plt.title("Elevation")
         plt.imshow(data_cpu, cmap="terrain")
         plt.colorbar(fraction=0.046, pad=0.04)
 
-        plt.subplot(1, 2, 2)
+        plt.subplot(1, 3, 2)
         plt.title("Feature Class")
         plt.imshow(feats_cpu, cmap="tab10", vmin=0, vmax=9)
         plt.colorbar(fraction=0.046, pad=0.04)
+
+        plt.subplot(1, 3, 3)
+        plt.title("Feature Class Histogram")
+        feature_counts = count_features_by_class(features)
+
+        plt.bar(feature_counts.keys(), feature_counts.values())
+        plt.xlabel("Terrain Feature Class")
+        plt.ylabel("Pixel Count")
+        plt.title("Terrain Feature Counts")
+        plt.xticks(range(11),
+                   ["flat", "peak", "ridge", "shoulder", "spur", "slope", "pit", "valley", "footslope", "hollow", "N/A"],
+                   rotation=45)
 
         plt.tight_layout()
         plt.show()
