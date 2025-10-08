@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 
-def classify_terrain_tensor(H, eps=1e-3):
+def classify_terrain_tensor(H, eps=1e-5):
     """
     Classify each pixel of a 2D terrain tensor into one of ten terrain feature types
     (flat, peak, ridge, shoulder, spur, slope, pit, valley, footslope, hollow).
@@ -12,7 +12,7 @@ def classify_terrain_tensor(H, eps=1e-3):
     H : torch.Tensor
         2D tensor of elevations, shape (h, w)
     eps : float
-        Threshold for equality (treat values within ±eps as equal)
+        Threshold for equality (treat values within +-eps as equal)
 
     Returns
     -------
@@ -85,7 +85,7 @@ if __name__ == "__main__":
                                                shuffle=True,
                                                drop_last=True)
 
-    data = [i for i in train_loader][0]
+    data = [i for i in train_loader][5]
     data = data.squeeze()[1].to(device)
     print(data.size())
     features = classify_terrain_tensor(data)
@@ -94,11 +94,24 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
 
-    def showTensor(aTensor):
-        plt.figure()
-        plt.imshow(aTensor.numpy())
-        plt.colorbar()
+    def show_side_by_side(data, features):
+        data_cpu = data.detach().cpu().numpy()
+        feats_cpu = features.detach().cpu().numpy()
+
+        plt.figure(figsize=(10, 4))
+
+        plt.subplot(1, 2, 1)
+        plt.title("Elevation")
+        plt.imshow(data_cpu, cmap="terrain")
+        plt.colorbar(fraction=0.046, pad=0.04)
+
+        plt.subplot(1, 2, 2)
+        plt.title("Feature Class")
+        plt.imshow(feats_cpu, cmap="tab10", vmin=0, vmax=9)
+        plt.colorbar(fraction=0.046, pad=0.04)
+
+        plt.tight_layout()
         plt.show()
 
 
-    showTensor(features.cpu())
+    show_side_by_side(data, features)
