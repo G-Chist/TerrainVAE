@@ -229,8 +229,8 @@ def loss_function(recon_x, x, mu, logvar):
 def objective(trial):
     # Suggest hyperparameters
     hpcfg.learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
-    hpcfg.latent_dim = trial.suggest_int("latent_dim", 4, 64)
-    hpcfg.nf_min = trial.suggest_categorical("nf_min", [4, 6, 8, 10, 12, 14])
+    hpcfg.latent_dim = trial.suggest_int("latent_dim", 40, 100)
+    hpcfg.nf_min = trial.suggest_categorical("nf_min", [8, 10, 12, 14, 16])
     hpcfg.pre_latent = trial.suggest_int("pre_latent", 32, 128)
 
     # Recreate model and optimizer with suggested params
@@ -241,7 +241,7 @@ def objective(trial):
     model.train()
     total_loss = 0
     for batch_idx, data in enumerate(train_loader):
-        if batch_idx > 10:  # limit training batches for speed
+        if batch_idx > 15:  # limit training batches for speed
             break
         data = data.to(device)
         optimizer.zero_grad()
@@ -258,7 +258,7 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=30, timeout=None)
+    study.optimize(objective, n_trials=100, timeout=None)
 
     print("Best trial:")
     print(study.best_trial.params)
