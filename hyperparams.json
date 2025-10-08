@@ -6,8 +6,8 @@
   "log_interval": "10",
   "img_size": "100",
   "data_path": "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_cropped",
-  "latent_dim": "128",
-  "nf_min": "8",
-  "pre_latent": "100",
-  "learning_rate": "0.0001"
+  "latent_dim": "93",
+  "nf_min": "14",
+  "pre_latent": "116",
+  "learning_rate": "1.7533e-05"
 }
