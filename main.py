@@ -48,7 +48,6 @@ class HyperparamConfig(Config):
     pre_latent = field("pre_latent", provider=provider, caster=to_int)
 
 
-
 hpcfg = HyperparamConfig()
 
 use_accel = not hpcfg.no_accel and torch.accelerator.is_available()
