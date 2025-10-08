@@ -85,8 +85,20 @@ if __name__ == "__main__":
                                                shuffle=True,
                                                drop_last=True)
 
-    for data in train_loader:
-        data = data.squeeze()[1].to(device)
-        print(data.size())
-        features = classify_terrain_tensor(data)
-        print(features.flatten())
+    data = [i for i in train_loader][0]
+    data = data.squeeze()[1].to(device)
+    print(data.size())
+    features = classify_terrain_tensor(data)
+    print(features.flatten())
+
+    import matplotlib.pyplot as plt
+
+
+    def showTensor(aTensor):
+        plt.figure()
+        plt.imshow(aTensor.numpy())
+        plt.colorbar()
+        plt.show()
+
+
+    showTensor(features.cpu())
