@@ -8,6 +8,10 @@
   "data_path": "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_cropped",
   "latent_dim": "93",
   "nf_min": "14",
+  "kernel1": "3",
+  "kernel2": "3",
+  "kernel3": "5",
+  "kernel4": "5",
   "pre_latent": "116",
   "learning_rate": "1.7533e-05"
 }

@@ -2,6 +2,15 @@ import torch
 import torch.nn.functional as F
 
 
+def terrain_counts_tensor(H, num_classes=10, device="cpu"):
+    feat = classify_terrain_tensor(H)  # shape (h, w)
+    counts = count_features_by_class(feat, num_classes=num_classes)
+    counts_tensor = torch.tensor([counts[i] for i in range(num_classes)],
+                                 dtype=torch.float32, device=device)
+    counts_tensor /= H.numel()  # normalize to [0,1]
+    return counts_tensor
+
+
 def classify_terrain_tensor(H, eps=1e-5):
     """
     Classify each pixel of a 2D terrain tensor into one of ten terrain feature types
