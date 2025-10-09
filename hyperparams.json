@@ -1,11 +1,11 @@
 {
   "batch_size": "24",
   "no_accel": "False",
-  "epochs": "55",
+  "epochs": "150",
   "seed": "1",
   "log_interval": "10",
   "img_size": "100",
-  "data_path": "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_cropped",
+  "data_path": "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_croppedsa",
   "latent_dim": "52",
   "nf_min": "8",
   "kernel1": "7",

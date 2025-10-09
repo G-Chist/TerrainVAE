@@ -19,7 +19,10 @@ from classify_terrain_tensor import count_features_by_class, classify_terrain_te
 
 import json
 
+
 HYPERPARAMS_FILE = r"C:\Users\79140\PycharmProjects\TerrainVAE\hyperparams.json"
+
+checkpoint_path = "checkpoints/vae_cnn.pt"
 
 
 class JSONProvider(AbstractProvider):
@@ -187,7 +190,6 @@ class VAE(nn.Module):
 model = VAE().to(device)
 optimizer = optim.Adam(model.parameters(), lr=hpcfg.learning_rate)
 
-
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
     BCE = F.binary_cross_entropy(recon_x, x, reduction='sum')
@@ -248,9 +250,17 @@ def test(epoch):
 if __name__ == "__main__":
     for epoch in range(1, hpcfg.epochs + 1):
         train(epoch)
-        test(epoch)
         with torch.no_grad():
             sample = torch.randn(64, hpcfg.latent_dim+10).to(device)
             sample = model.decode(sample).cpu()
             save_image(sample.view(64, 1, hpcfg.img_size, hpcfg.img_size),
                        'results/sample_' + str(epoch) + '.png')
+
+        torch.save({
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": None,
+        }, f"checkpoints/vae_cnn.pt")
+
+        print("Weights saved!")
