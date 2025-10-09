@@ -126,6 +126,9 @@ if __name__ == "__main__":
 
     def show_side_by_side(data, features):
         data_cpu = data.detach().cpu().numpy()
+
+        print(terrain_counts_tensor(data))
+
         feats_cpu = features.detach().cpu().numpy()
 
         plt.figure(figsize=(10, 4))
@@ -151,6 +154,8 @@ if __name__ == "__main__":
         plt.xticks(range(11),
                    ["flat", "peak", "ridge", "shoulder", "spur", "slope", "pit", "valley", "footslope", "hollow", "N/A"],
                    rotation=45)
+
+        print(feature_counts)
 
         plt.tight_layout()
         plt.show()
