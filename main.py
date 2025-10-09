@@ -80,115 +80,122 @@ train_loader = torch.utils.data.DataLoader(dataset,
                                            shuffle=True,
                                            drop_last=True)
 
-test_loader = torch.utils.data.DataLoader(dataset,
-                                          batch_size=hpcfg.batch_size,
-                                          shuffle=False,
-                                          drop_last=True)
+# test_loader = torch.utils.data.DataLoader(dataset,
+#                                          batch_size=hpcfg.batch_size,
+#                                          shuffle=False,
+#                                          drop_last=True)
 
 
-class VAE(nn.Module):
+class CVAE(nn.Module):
     def __init__(self):
-        super(VAE, self).__init__()
+        super(CVAE, self).__init__()
 
-        # Convolutional Encoder
-        self.conv1 = nn.Conv2d(1, hpcfg.nf_min, kernel_size=hpcfg.kernel1, stride=1, padding=hpcfg.kernel1 // 2)
-        self.conv2 = nn.Conv2d(hpcfg.nf_min, hpcfg.nf_min * 2, kernel_size=hpcfg.kernel2, stride=1, padding=hpcfg.kernel2 // 2)
-        self.conv3 = nn.Conv2d(hpcfg.nf_min * 2, hpcfg.nf_min * 4, kernel_size=hpcfg.kernel3, stride=1, padding=hpcfg.kernel3 // 2)
-        self.conv4 = nn.Conv2d(hpcfg.nf_min * 4, hpcfg.nf_min * 8, kernel_size=hpcfg.kernel4, stride=1, padding=hpcfg.kernel4 // 2)
+        # Encoder
+        self.enc1 = nn.Sequential(
+            nn.Conv2d(1, hpcfg.nf_min, 4, stride=2, padding=1),
+            nn.BatchNorm2d(hpcfg.nf_min),
+            nn.LeakyReLU()
+        )
+        self.enc2 = nn.Sequential(
+            nn.Conv2d(hpcfg.nf_min, hpcfg.nf_min * 2, 4, stride=2, padding=1),
+            nn.BatchNorm2d(hpcfg.nf_min * 2),
+            nn.LeakyReLU()
+        )
+        self.enc3 = nn.Sequential(
+            nn.Conv2d(hpcfg.nf_min * 2, hpcfg.nf_min * 4, 4, stride=2, padding=1),
+            nn.BatchNorm2d(hpcfg.nf_min * 4),
+            nn.LeakyReLU()
+        )
+        self.enc4 = nn.Sequential(
+            nn.Conv2d(hpcfg.nf_min * 4, hpcfg.nf_min * 8, 4, stride=2, padding=1),
+            nn.BatchNorm2d(hpcfg.nf_min * 8),
+            nn.LeakyReLU()
+        )
 
-        self.batch1 = nn.BatchNorm2d(hpcfg.nf_min)
-        self.batch2 = nn.BatchNorm2d(hpcfg.nf_min * 2)
-        self.batch3 = nn.BatchNorm2d(hpcfg.nf_min * 4)
-        self.batch4 = nn.BatchNorm2d(hpcfg.nf_min * 8)
-
-        # Count mapping
-        self.count_fc = nn.Linear(10, hpcfg.latent_dim)
-
-        # Flatten size
+        # Determine flattened dim dynamically
         with torch.no_grad():
             dummy = torch.zeros(1, 1, hpcfg.img_size, hpcfg.img_size)
-            x = F.leaky_relu(self.batch1(self.conv1(dummy)))
-            x = F.leaky_relu(self.batch2(self.conv2(x)))
-            x = F.leaky_relu(self.batch3(self.conv3(x)))
-            x = F.leaky_relu(self.batch4(self.conv4(x)))
-            _, _, self.conv_out_h, self.conv_out_w = x.shape
-            self.flatten_dim = x.numel()
+            x = self.enc4(self.enc3(self.enc2(self.enc1(dummy))))
+            _, _, H, W = x.shape
+            self.H, self.W = H, W
+            self.flat_dim = hpcfg.nf_min * 8 * H * W
 
-        # Fully connected encoder
-        self.e_fc1 = nn.Linear(self.flatten_dim, hpcfg.pre_latent)
-        self.e_fc21 = nn.Linear(hpcfg.pre_latent, hpcfg.latent_dim)
-        self.e_fc22 = nn.Linear(hpcfg.pre_latent, hpcfg.latent_dim)
+        # Conditional latent mappings
+        cond_dim = 10
+        self.fc_mu = nn.Linear(self.flat_dim + cond_dim, hpcfg.latent_dim)
+        self.fc_logvar = nn.Linear(self.flat_dim + cond_dim, hpcfg.latent_dim)
+        self.fc_decode = nn.Linear(hpcfg.latent_dim + cond_dim, self.flat_dim)
 
-        # Fully connected decoder
-        self.d_fc1 = nn.Linear(hpcfg.latent_dim + 10, hpcfg.pre_latent)  # input dim increased
-        self.d_fc2 = nn.Linear(hpcfg.pre_latent, self.flatten_dim)
+        # Decoder (replaces ConvTranspose2d with Upsample + Conv2d)
+        self.dec1 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(hpcfg.nf_min * 8, hpcfg.nf_min * 4, 3, stride=1, padding=1),
+            nn.BatchNorm2d(hpcfg.nf_min * 4),
+            nn.LeakyReLU()
+        )
+        self.dec2 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(hpcfg.nf_min * 4, hpcfg.nf_min * 2, 3, stride=1, padding=1),
+            nn.BatchNorm2d(hpcfg.nf_min * 2),
+            nn.LeakyReLU()
+        )
+        self.dec3 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(hpcfg.nf_min * 2, hpcfg.nf_min, 3, stride=1, padding=1),
+            nn.BatchNorm2d(hpcfg.nf_min),
+            nn.LeakyReLU()
+        )
+        self.dec4 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(hpcfg.nf_min, 1, 3, stride=1, padding=1),
+            nn.Sigmoid()
+        )
 
-        # Convolutional decoder
-        self.deconv1 = nn.ConvTranspose2d(hpcfg.nf_min * 8, hpcfg.nf_min * 4, kernel_size=hpcfg.kernel4, stride=1, padding=hpcfg.kernel4 // 2)
-        self.deconv2 = nn.ConvTranspose2d(hpcfg.nf_min * 4, hpcfg.nf_min * 2, kernel_size=hpcfg.kernel3, stride=1, padding=hpcfg.kernel3 // 2)
-        self.deconv3 = nn.ConvTranspose2d(hpcfg.nf_min * 2, hpcfg.nf_min, kernel_size=hpcfg.kernel2, stride=1, padding=hpcfg.kernel2 // 2)
-        self.deconv4 = nn.Conv2d(hpcfg.nf_min, 1, kernel_size=hpcfg.kernel1, stride=1, padding=hpcfg.kernel1 // 2)
-
-        self.dbatch1 = nn.BatchNorm2d(hpcfg.nf_min * 4)
-        self.dbatch2 = nn.BatchNorm2d(hpcfg.nf_min * 2)
-        self.dbatch3 = nn.BatchNorm2d(hpcfg.nf_min)
+        # Final resize for exact shape
+        self.final_resize = nn.Upsample(size=(hpcfg.img_size, hpcfg.img_size), mode='bilinear', align_corners=False)
 
     def encode(self, x):
-        # Convolutional feature extraction
-        xh = F.leaky_relu(self.batch1(self.conv1(x)))
-        
-        xh = F.leaky_relu(self.batch2(self.conv2(xh)))
-        
-        xh = F.leaky_relu(self.batch3(self.conv3(xh)))
-        
-        xh = F.leaky_relu(self.batch4(self.conv4(xh)))
-
+        xh = self.enc4(self.enc3(self.enc2(self.enc1(x))))
         xh = torch.flatten(xh, start_dim=1)
-        xh = F.leaky_relu(self.e_fc1(xh))
 
-        mu = self.e_fc21(xh)
-        logvar = self.e_fc22(xh)
-
-        # Compute terrain counts and concatenate
         batch_size = x.shape[0]
-        counts_batch = torch.stack([
+        cond = torch.stack([
             terrain_counts_tensor(x[i, 0], num_classes=10, device=x.device)
             for i in range(batch_size)
         ])
-        mu = torch.cat([mu, counts_batch], dim=1)
-        logvar = torch.cat([logvar, counts_batch], dim=1)
 
-        return mu, logvar
+        xc = torch.cat([xh, cond], dim=1)
+        mu = self.fc_mu(xc)
+        logvar = self.fc_logvar(xc)
+        return mu, logvar, cond
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def decode(self, z):
-        xh = F.leaky_relu(self.d_fc1(z))
-        xh = F.leaky_relu(self.d_fc2(xh))
-        
-        xh = xh.view(-1, hpcfg.nf_min * 8, self.conv_out_h, self.conv_out_w)
-        
-        xh = F.leaky_relu(self.dbatch1(self.deconv1(xh)))
-        
-        xh = F.leaky_relu(self.dbatch2(self.deconv2(xh)))
-        
-        xh = F.leaky_relu(self.dbatch3(self.deconv3(xh)))
-        
-        xh = torch.sigmoid(self.deconv4(xh))
+    def decode(self, z, cond):
+        zc = torch.cat([z, cond], dim=1)
+        xh = F.leaky_relu(self.fc_decode(zc))
+        xh = xh.view(-1, hpcfg.nf_min * 8, self.H, self.W)
 
+        xh = self.dec1(xh)
+        xh = self.dec2(xh)
+        xh = self.dec3(xh)
+        xh = self.dec4(xh)
+        xh = self.final_resize(xh)
         return xh
 
     def forward(self, x):
-        mu, logvar = self.encode(x)
+        mu, logvar, cond = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        recon = self.decode(z, cond)
+        return recon, mu, logvar, cond
 
 
-model = VAE().to(device)
+model = CVAE().to(device)
 optimizer = optim.Adam(model.parameters(), lr=hpcfg.learning_rate)
+
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
@@ -210,7 +217,7 @@ def train(epoch):
     for batch_idx, data in enumerate(train_loader):
         data = data.to(device)
         optimizer.zero_grad()
-        recon_batch, mu, logvar = model(data)
+        recon_batch, mu, logvar, cond = model(data)
         loss, _, KLD = loss_function(recon_batch, data, mu, logvar)
         loss.backward()
         train_loss += loss.item()
@@ -226,6 +233,7 @@ def train(epoch):
         epoch, train_loss / len(train_loader.dataset)))
 
 
+"""
 def test(epoch):
     model.eval()
     test_loss = 0
@@ -245,14 +253,21 @@ def test(epoch):
 
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
+"""
 
 
 if __name__ == "__main__":
     for epoch in range(1, hpcfg.epochs + 1):
         train(epoch)
         with torch.no_grad():
-            sample = torch.randn(64, hpcfg.latent_dim+10).to(device)
-            sample = model.decode(sample).cpu()
+            sample = torch.randn(64, hpcfg.latent_dim).to(device)
+
+            # supply condition manually
+            # example: random normalized terrain feature counts
+            cond = torch.rand(64, 10, device=device)
+            cond = cond / cond.sum(dim=1, keepdim=True)
+
+            sample = model.decode(sample, cond).cpu()
             save_image(sample.view(64, 1, hpcfg.img_size, hpcfg.img_size),
                        'results/sample_' + str(epoch) + '.png')
 

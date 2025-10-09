@@ -5,13 +5,13 @@
   "seed": "1",
   "log_interval": "10",
   "img_size": "100",
-  "data_path": "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_croppedsa",
+  "data_path": "C:\\Users\\79140\\PycharmProjects\\procedural-terrain-generation\\data\\datapoints_png_cropped",
   "latent_dim": "52",
   "nf_min": "8",
-  "kernel1": "7",
-  "kernel2": "9",
-  "kernel3": "3",
-  "kernel4": "5",
+  "kernel1": "8",
+  "kernel2": "10",
+  "kernel3": "4",
+  "kernel4": "6",
   "pre_latent": "91",
   "learning_rate": "1.4218756905367029e-05"
 }
