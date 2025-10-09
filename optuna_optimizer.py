@@ -1,7 +1,4 @@
 from __future__ import print_function
-
-import optuna
-
 import argparse
 import os
 
@@ -18,7 +15,11 @@ from betterconf.caster import to_int, to_bool, to_list, to_float
 
 from terrain_dataset import TerrainDataset
 
+from classify_terrain_tensor import count_features_by_class, classify_terrain_tensor, terrain_counts_tensor
+
 import json
+
+import optuna
 
 HYPERPARAMS_FILE = r"C:\Users\79140\PycharmProjects\TerrainVAE\hyperparams.json"
 
@@ -49,6 +50,10 @@ class HyperparamConfig(Config):
     learning_rate = field("learning_rate", provider=provider, caster=to_float)
     nf_min = field("nf_min", provider=provider, caster=to_int)
     pre_latent = field("pre_latent", provider=provider, caster=to_int)
+    kernel1 = field("kernel1", provider=provider, caster=to_int)
+    kernel2 = field("kernel2", provider=provider, caster=to_int)
+    kernel3 = field("kernel3", provider=provider, caster=to_int)
+    kernel4 = field("kernel4", provider=provider, caster=to_int)
 
 
 hpcfg = HyperparamConfig()
@@ -84,36 +89,24 @@ class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
 
-        # Vanilla Encoder layers
-
-        self.enc1 = nn.Linear(hpcfg.img_size ** 2, 400)
-        self.enc2 = nn.Linear(400, 400)
-        self.enc31 = nn.Linear(400, hpcfg.latent_dim)
-        self.enc32 = nn.Linear(400, hpcfg.latent_dim)
-
-        # Vanilla Decoder layers
-
-        self.dec1 = nn.Linear(hpcfg.latent_dim, 400)
-        self.dec2 = nn.Linear(400, 400)
-        self.dec3 = nn.Linear(400, hpcfg.img_size ** 2)
-
-        # Convolutional Encoder layers
-
-        self.conv1 = nn.Conv2d(
-            1, hpcfg.nf_min, kernel_size=5, stride=1, padding=2)
-        self.conv2 = nn.Conv2d(
-            hpcfg.nf_min, hpcfg.nf_min * 2, kernel_size=5, stride=1, padding=2)
-        self.conv3 = nn.Conv2d(
-            hpcfg.nf_min * 2, hpcfg.nf_min * 4, kernel_size=5, stride=1, padding=2)
-        self.conv4 = nn.Conv2d(
-            hpcfg.nf_min * 4, hpcfg.nf_min * 8, kernel_size=3, stride=1, padding=2)
+        # Convolutional Encoder
+        self.conv1 = nn.Conv2d(1, hpcfg.nf_min, kernel_size=hpcfg.kernel1, stride=1, padding=hpcfg.kernel1 // 2)
+        self.conv2 = nn.Conv2d(hpcfg.nf_min, hpcfg.nf_min * 2, kernel_size=hpcfg.kernel2, stride=1,
+                               padding=hpcfg.kernel2 // 2)
+        self.conv3 = nn.Conv2d(hpcfg.nf_min * 2, hpcfg.nf_min * 4, kernel_size=hpcfg.kernel3, stride=1,
+                               padding=hpcfg.kernel3 // 2)
+        self.conv4 = nn.Conv2d(hpcfg.nf_min * 4, hpcfg.nf_min * 8, kernel_size=hpcfg.kernel4, stride=1,
+                               padding=hpcfg.kernel4 // 2)
 
         self.batch1 = nn.BatchNorm2d(hpcfg.nf_min)
         self.batch2 = nn.BatchNorm2d(hpcfg.nf_min * 2)
         self.batch3 = nn.BatchNorm2d(hpcfg.nf_min * 4)
         self.batch4 = nn.BatchNorm2d(hpcfg.nf_min * 8)
 
-        # Determine flatten size dynamically
+        # Count mapping
+        self.count_fc = nn.Linear(10, hpcfg.latent_dim)
+
+        # Flatten size
         with torch.no_grad():
             dummy = torch.zeros(1, 1, hpcfg.img_size, hpcfg.img_size)
             x = F.leaky_relu(self.batch1(self.conv1(dummy)))
@@ -123,87 +116,79 @@ class VAE(nn.Module):
             _, _, self.conv_out_h, self.conv_out_w = x.shape
             self.flatten_dim = x.numel()
 
-        self.e_fc1 = nn.Linear(in_features=self.flatten_dim,
-                               out_features=hpcfg.pre_latent)
+        # Fully connected encoder
+        self.e_fc1 = nn.Linear(self.flatten_dim, hpcfg.pre_latent)
+        self.e_fc21 = nn.Linear(hpcfg.pre_latent, hpcfg.latent_dim)
+        self.e_fc22 = nn.Linear(hpcfg.pre_latent, hpcfg.latent_dim)
 
-        self.e_fc21 = nn.Linear(
-            in_features=hpcfg.pre_latent, out_features=hpcfg.latent_dim)
-        self.e_fc22 = nn.Linear(
-            in_features=hpcfg.pre_latent, out_features=hpcfg.latent_dim)
-
-        # Convolutional Decoder layers
-
-        self.d_fc1 = nn.Linear(hpcfg.latent_dim, hpcfg.pre_latent)
+        # Fully connected decoder
+        self.d_fc1 = nn.Linear(hpcfg.latent_dim + 10, hpcfg.pre_latent)  # input dim increased
         self.d_fc2 = nn.Linear(hpcfg.pre_latent, self.flatten_dim)
 
-        self.deconv1 = nn.ConvTranspose2d(
-            hpcfg.nf_min * 8, hpcfg.nf_min * 4, kernel_size=3, stride=1, padding=2)
-        self.deconv2 = nn.ConvTranspose2d(
-            hpcfg.nf_min * 4, hpcfg.nf_min * 2, kernel_size=5, stride=1, padding=2)
-        self.deconv3 = nn.ConvTranspose2d(
-            hpcfg.nf_min * 2, hpcfg.nf_min, kernel_size=5, stride=1, padding=2)
-        self.deconv4 = nn.Conv2d(
-            hpcfg.nf_min, 1, kernel_size=5, stride=1, padding=2)
+        # Convolutional decoder
+        self.deconv1 = nn.ConvTranspose2d(hpcfg.nf_min * 8, hpcfg.nf_min * 4, kernel_size=hpcfg.kernel4, stride=1,
+                                          padding=hpcfg.kernel4 // 2)
+        self.deconv2 = nn.ConvTranspose2d(hpcfg.nf_min * 4, hpcfg.nf_min * 2, kernel_size=hpcfg.kernel3, stride=1,
+                                          padding=hpcfg.kernel3 // 2)
+        self.deconv3 = nn.ConvTranspose2d(hpcfg.nf_min * 2, hpcfg.nf_min, kernel_size=hpcfg.kernel2, stride=1,
+                                          padding=hpcfg.kernel2 // 2)
+        self.deconv4 = nn.Conv2d(hpcfg.nf_min, 1, kernel_size=hpcfg.kernel1, stride=1, padding=hpcfg.kernel1 // 2)
 
         self.dbatch1 = nn.BatchNorm2d(hpcfg.nf_min * 4)
         self.dbatch2 = nn.BatchNorm2d(hpcfg.nf_min * 2)
         self.dbatch3 = nn.BatchNorm2d(hpcfg.nf_min)
 
     def encode(self, x):
-        # First convolution + batch norm + activation
-        xh = self.conv1(x)
-        xh = F.leaky_relu(self.batch1(xh))
+        # Convolutional feature extraction
+        xh = F.leaky_relu(self.batch1(self.conv1(x)))
 
-        # Second convolution + batch norm + activation
-        xh = self.conv2(xh)
-        xh = F.leaky_relu(self.batch2(xh))
+        xh = F.leaky_relu(self.batch2(self.conv2(xh)))
 
-        # Third convolution + batch norm + activation
-        xh = self.conv3(xh)
-        xh = F.leaky_relu(self.batch3(xh))
+        xh = F.leaky_relu(self.batch3(self.conv3(xh)))
 
-        # Fourth convolution + batch norm + activation
-        xh = self.conv4(xh)
-        xh = F.leaky_relu(self.batch4(xh))
+        xh = F.leaky_relu(self.batch4(self.conv4(xh)))
 
-        # Flatten convolutional feature maps into a single vector
         xh = torch.flatten(xh, start_dim=1)
-
-        # Fully connected layer before latent projection
         xh = F.leaky_relu(self.e_fc1(xh))
 
         # Return latent mean and log-variance
         mu = self.e_fc21(xh)
         logvar = torch.clamp(self.e_fc22(xh), -10, 10)
+
+        # Compute terrain counts and concatenate
+        batch_size = x.shape[0]
+        counts_batch = torch.stack([
+            terrain_counts_tensor(x[i, 0], num_classes=10, device=x.device)
+            for i in range(batch_size)
+        ])
+        mu = torch.cat([mu, counts_batch], dim=1)
+        logvar = torch.cat([logvar, counts_batch], dim=1)
+
         return mu, logvar
 
     def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * torch.clamp(logvar, -10, 10))
+        std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
 
     def decode(self, z):
-        # Fully connected projection from latent to flattened conv feature map
         xh = F.leaky_relu(self.d_fc1(z))
         xh = F.leaky_relu(self.d_fc2(xh))
 
-        # Reshape into 4D tensor for ConvTranspose2d
         xh = xh.view(-1, hpcfg.nf_min * 8, self.conv_out_h, self.conv_out_w)
 
-        # Sequential transposed convolutional upsampling
         xh = F.leaky_relu(self.dbatch1(self.deconv1(xh)))
+
         xh = F.leaky_relu(self.dbatch2(self.deconv2(xh)))
+
         xh = F.leaky_relu(self.dbatch3(self.deconv3(xh)))
 
-        # Final conv to reconstruct 1-channel image
-        xh = torch.sigmoid(self.deconv4(xh)).clamp(1e-7, 1 - 1e-7)
+        xh = torch.sigmoid(self.deconv4(xh))
 
         return xh
 
     def forward(self, x):
         mu, logvar = self.encode(x)
-        print("mu mean/std:", mu.mean().item(), mu.std().item())
-        print("logvar mean/std:", logvar.mean().item(), logvar.std().item())
         z = self.reparameterize(mu, logvar)
         return self.decode(z), mu, logvar
 
@@ -232,6 +217,10 @@ def objective(trial):
     hpcfg.latent_dim = trial.suggest_int("latent_dim", 40, 100)
     hpcfg.nf_min = trial.suggest_categorical("nf_min", [8, 10, 12, 14, 16])
     hpcfg.pre_latent = trial.suggest_int("pre_latent", 32, 128)
+    hpcfg.kernel1 = trial.suggest_categorical("kernel1", [3, 5, 7, 9])
+    hpcfg.kernel2 = trial.suggest_categorical("kernel2", [3, 5, 7, 9])
+    hpcfg.kernel3 = trial.suggest_categorical("kernel3", [3, 5, 7, 9])
+    hpcfg.kernel4 = trial.suggest_categorical("kernel4", [3, 5, 7, 9])
 
     # Recreate model and optimizer with suggested params
     model = VAE().to(device)
