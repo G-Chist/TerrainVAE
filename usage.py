@@ -9,6 +9,22 @@ from PIL import Image
 import os
 from classify_terrain_tensor import count_features_by_class, classify_terrain_tensor, terrain_counts_tensor
 
+
+def gaussian_kernel(size: int, sigma: float):
+    ax = torch.arange(-size // 2 + 1., size // 2 + 1.)
+    xx, yy = torch.meshgrid(ax, ax, indexing="ij")
+    kernel = torch.exp(-(xx**2 + yy**2) / (2. * sigma**2))
+    kernel = kernel / kernel.sum()
+    return kernel
+
+
+def gaussian_blur(img: torch.Tensor, blur_size: int, sigma: float):
+    # img shape: (batch, channels, H, W)
+    kernel = gaussian_kernel(blur_size, sigma)
+    kernel = kernel.expand(img.size(1), 1, blur_size, blur_size)
+    return F.conv2d(img, kernel, padding=blur_size//2, groups=img.size(1))
+
+
 device = torch.device("cuda")
 
 # Load model and weights
@@ -18,7 +34,7 @@ model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Load one input image from inputs/
-img_path = "example4.png"
+img_path = "example2.png"
 img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.img_size, hpcfg.img_size))
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
 x = x.to(device)
@@ -31,10 +47,20 @@ injection = torch.tensor([0, 50, 100, 4000, 0, 0, 0, 0, 0, 0]) / x.numel()
 with torch.no_grad():
     mu, logvar, cond = model.encode(x)
     z = model.reparameterize(mu, logvar)
-    recon = model.decode(z, cond).cpu().squeeze().numpy()
+    recon = model.decode(z, cond).cpu().squeeze()
+
+# Linearly interpolate recon with input image
+BLUR_SIZE = 25
+sigma = 1.5
+
+x_blur = gaussian_blur(x.cpu(), BLUR_SIZE, sigma)
+recon_t = recon.unsqueeze(0).unsqueeze(0).cpu()
+
+# Interpolate between blurred input and reconstruction
+recon_mix = torch.lerp(x_blur, recon_t, 0.7).squeeze().cpu().numpy()
 
 # Scale 3D heights
-recon_scaled = recon * 0.2
+recon_scaled = recon_mix * 0.2
 
 # 2D + 4x 3D views
 fig = plt.figure(figsize=(20, 5))
@@ -52,7 +78,7 @@ ax2.set_title("Decoded Terrain")
 ax2.axis('off')
 
 # 3D views at different angles
-angles = [(30, 45), (60, 30), (45, 90), (75, 60)]
+angles = [(30, 45), (60, 30), (15, 90), (75, 60)]
 for i, (elev, azim) in enumerate(angles):
     ax = fig.add_subplot(1, 6, i + 3, projection='3d')
     h, w = recon_scaled.shape
