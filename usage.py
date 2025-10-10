@@ -18,7 +18,7 @@ model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Load one input image from inputs/
-img_path = "example1.png"
+img_path = "example4.png"
 img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.img_size, hpcfg.img_size))
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
 x = x.to(device)
@@ -64,4 +64,19 @@ for i, (elev, azim) in enumerate(angles):
     ax.set_axis_off()
 
 plt.tight_layout()
-plt.show()
+
+# Save the combined figure
+os.makedirs("outputs", exist_ok=True)
+
+# Extract identifier from filename
+import os, re
+base = os.path.splitext(os.path.basename(img_path))[0]
+digits = re.findall(r"\d+", base)
+identifier = digits[-1] if digits else base
+
+# Save figure
+out_path = os.path.join("outputs", f"{identifier}_full.png")
+plt.savefig(out_path, bbox_inches="tight", dpi=150)
+plt.close(fig)
+
+print(f"Saved visualization to {out_path}")
