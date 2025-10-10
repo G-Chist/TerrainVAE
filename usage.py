@@ -9,7 +9,7 @@ from PIL import Image
 import os
 from classify_terrain_tensor import count_features_by_class, classify_terrain_tensor, terrain_counts_tensor
 
-device = torch.device("cpu")
+device = torch.device("cuda")
 
 # Load model and weights
 model = CVAE().to(device)
@@ -23,25 +23,13 @@ img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.im
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
 x = x.to(device)
 
-# Prepare for "feature injection": use real-life landform feature ratio
+print(terrain_counts_tensor(x.squeeze(), 10, device=device))
 
-# Original counts
-counts = {0: 0, 1: 2, 2: 63, 3: 861, 4: 7739, 5: 0, 6: 0, 7: 70, 8: 0, 9: 0}
-
-# Convert to tensor
-keys_sorted = sorted(counts.keys())
-vec = torch.tensor([counts[k] for k in keys_sorted], dtype=torch.float32)
-
-# Normalize (divide by sum to get values between 0 and 1)
-cond_vector = vec / vec.sum()
-
-# Unsqueeze
-cond_vector = cond_vector.unsqueeze(0)
+injection = torch.tensor([0, 50, 100, 4000, 0, 0, 0, 0, 0, 0]) / x.numel()
 
 # Encode and reconstruct
 with torch.no_grad():
-    mu, logvar, _ = model.encode(x)  # ignore real landform features
-    cond = cond_vector
+    mu, logvar, cond = model.encode(x)
     z = model.reparameterize(mu, logvar)
     recon = model.decode(z, cond).cpu().squeeze().numpy()
 

@@ -169,6 +169,16 @@ class CVAE(nn.Module):
         logvar = self.fc_logvar(xc)
         return mu, logvar, cond
 
+    def encode_injected(self, x, injected_cond):
+        with torch.no_grad():
+            # Encode with injected condition vector
+            xh = self.enc4(self.enc3(self.enc2(self.enc1(x))))
+            xh = torch.flatten(xh, start_dim=1)
+            zc = torch.cat([xh, injected_cond], dim=1)
+            mu = self.fc_mu(zc)
+            logvar = self.fc_logvar(zc)
+        return mu, logvar, injected_cond
+
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
