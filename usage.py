@@ -34,7 +34,7 @@ model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Load one input image from inputs/
-img_path = "example2.png"
+img_path = "example5.png"
 img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.img_size, hpcfg.img_size))
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
 x = x.to(device)
