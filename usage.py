@@ -34,7 +34,7 @@ model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Load one input image from inputs/
-img_path = "example5.png"
+img_path = "example1.png"
 img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.img_size, hpcfg.img_size))
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
 x = x.to(device)
@@ -57,7 +57,7 @@ x_blur = gaussian_blur(x.cpu(), BLUR_SIZE, sigma)
 recon_t = recon.unsqueeze(0).unsqueeze(0).cpu()
 
 # Interpolate between blurred input and reconstruction
-recon_mix = torch.lerp(x_blur, recon_t, 0.7).squeeze().cpu().numpy()
+recon_mix = torch.lerp(x_blur, recon_t, 0.95).squeeze().cpu().numpy()
 
 # Scale 3D heights
 recon_scaled = recon_mix * 0.2
@@ -73,8 +73,8 @@ ax1.axis('off')
 
 # 2D reconstructed
 ax2 = fig.add_subplot(1, 6, 2)
-ax2.imshow(recon, cmap='gray')
-ax2.set_title("Decoded Terrain")
+ax2.imshow(recon_mix, cmap='gray')
+ax2.set_title("Decoded Terrain (with Interpolation)")
 ax2.axis('off')
 
 # 3D views at different angles
