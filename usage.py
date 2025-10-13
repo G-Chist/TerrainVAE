@@ -27,7 +27,7 @@ def gaussian_blur(img: torch.Tensor, blur_size: int, sigma: float):
 
 device = torch.device("cuda")
 
-# Load model and weights
+# Load model and checkpoints
 model = CVAE().to(device)
 checkpoint = torch.load("checkpoints/vae_cnn.pt", map_location=device)
 model.load_state_dict(checkpoint["model_state_dict"])
