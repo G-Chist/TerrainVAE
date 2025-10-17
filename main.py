@@ -64,12 +64,18 @@ class HyperparamConfig(Config):
 
 hpcfg = HyperparamConfig()
 
-use_accel = not hpcfg.no_accel and torch.accelerator.is_available()
+try:
+    use_accel = not hpcfg.no_accel and torch.accelerator.is_available()
+except AttributeError:
+    use_accel = not hpcfg.no_accel and torch.cuda.is_available()
 
 torch.manual_seed(hpcfg.seed)
 
 if use_accel:
-    device = torch.accelerator.current_accelerator()
+    try:
+        device = torch.accelerator.current_accelerator()
+    except:
+        device = torch.device("cuda")
 else:
     device = torch.device("cpu")
 
