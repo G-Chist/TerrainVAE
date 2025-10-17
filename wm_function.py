@@ -1,100 +1,117 @@
 """
-Weierstrass-Mandelbrot Function Terrain Generator (PyTorch Version)
--------------------------------------------------------------------
+Weierstrass-Mandelbrot Fractal Terrain Generator (PyTorch, Seamless Chunked)
+----------------------------------------------------------------------------
 
-This script generates a 2D Weierstrass-Mandelbrot fractal terrain heightmap
-using PyTorch tensors and visualizes it with Matplotlib.
-
-Key Components:
----------------
-- Fractal Noise Generation (Weierstrass-Mandelbrot)
-- Tensor operations using PyTorch
-- Visualization using Matplotlib
+Generates a 2D fractal terrain heightmap using PyTorch with seamless chunking
+for large grids. Visualizes the terrain using Matplotlib.
 
 Dependencies:
 -------------
-torch, numpy, matplotlib
-
-Usage:
-------
-Run the script directly in any Python environment:
-    python wm_function.py
+torch, matplotlib
 """
 
 import torch
-import numpy as np
 import matplotlib.pyplot as plt
 
 
-def weierstrass_mandelbrot_3d(x, y, D, G, L, gamma, M, n_max, device='cpu'):
+def weierstrass_mandelbrot_chunked(
+    x_vals, y_vals, D_list, G_list, L, gamma, M_list, n_max,
+    device='cuda', chunk_size=1500, dtype=torch.float32
+):
     """
-    Compute the 3D Weierstrass-Mandelbrot function z(x, y) using PyTorch.
+    Compute seamless Weierstrass-Mandelbrot terrain in chunks.
 
     Parameters:
-        x, y : 2D torch tensors
-        D : float
-            Fractal dimension (typically 2 < D < 3)
-        G : float
-            Amplitude roughness coefficient
-        L : float
-            Transverse width of the profile
-        gamma : float
-            Frequency scaling factor (>1)
-        M : int
-            Number of ridges (azimuthal angles)
-        n_max : int
-            Upper cutoff frequency index
+    -----------
+    x_vals, y_vals : 1D torch tensors of coordinates
+    D_list, G_list, M_list : lists of parameters for each WM layer
+    L, gamma : float
+    n_max : int
+    device : 'cuda' or 'cpu'
+    chunk_size : int, max rows per chunk
     """
-    A = L * (G / L) ** (D - 2) * (torch.log(torch.tensor(gamma)) / M) ** 0.5
-    z = torch.zeros_like(x, device=device)
+    res_x = x_vals.size(0)
+    res_y = y_vals.size(0)
 
-    r = torch.sqrt(x ** 2 + y ** 2)
-    for m in range(1, M + 1):
-        theta_m = torch.atan2(y, x) - np.pi * m / M
-        phi_mn = 2 * np.pi * torch.rand(n_max + 1, device=device)
+    # Prepare full result on CPU
+    z_full = torch.zeros((res_y, res_x), dtype=dtype, device='cpu')
 
-        for n in range(n_max + 1):
-            gamma_n = gamma ** n
-            term = (
-                torch.cos(phi_mn[n])
-                - torch.cos(2 * np.pi * gamma_n * r / L * torch.cos(theta_m) + phi_mn[n])
-            )
-            z += gamma ** ((D - 3) * n) * term
+    # Precompute random phases and gamma powers for each layer
+    layers = []
+    for D, G, M in zip(D_list, G_list, M_list):
+        phi_mn_list = [2 * torch.pi * torch.rand(n_max + 1, device=device, dtype=dtype) for _ in range(M)]
+        layers.append({'D': D, 'G': G, 'M': M, 'phi_mn_list': phi_mn_list})
 
-    z *= A
-    return z
+    # Process chunks along y-axis
+    for start in range(0, res_y, chunk_size):
+        end = min(start + chunk_size, res_y)
+        y_chunk = y_vals[start:end]
+        yy, xx = torch.meshgrid(y_chunk, x_vals, indexing='ij')
+        xx = xx.to(device)
+        yy = yy.to(device)
+
+        z_chunk = torch.ones_like(xx, device=device, dtype=dtype)
+
+        for layer in layers:
+            D = layer['D']
+            G = layer['G']
+            M = layer['M']
+            phi_mn_list = layer['phi_mn_list']
+            A = L * (G / L) ** (D - 2) * (torch.log(torch.tensor(gamma, device=device, dtype=dtype)) / M).sqrt()
+
+            r = torch.sqrt(xx**2 + yy**2)
+            z_layer = torch.zeros_like(xx, device=device, dtype=dtype)
+
+            for m in range(M):
+                theta_m = torch.atan2(yy, xx) - (torch.pi * (m+1) / M)
+                cos_theta = torch.cos(theta_m)
+                phi_mn = phi_mn_list[m]
+
+                for n in range(n_max + 1):
+                    gamma_n = gamma ** n
+                    term = torch.cos(phi_mn[n]) - torch.cos(2 * torch.pi * gamma_n * r / L * cos_theta + phi_mn[n])
+                    z_layer += gamma ** ((D - 3) * n) * term
+
+            z_layer *= A
+            z_chunk *= z_layer  # multiply layers
+
+        # Move chunk to CPU
+        z_full[start:end, :] = z_chunk.cpu()
+
+        # Free GPU memory
+        del xx, yy, z_chunk, z_layer
+        torch.cuda.empty_cache()
+
+    # Normalize globally
+    z_full = (z_full - z_full.min()) / (z_full.max() - z_full.min())
+    return z_full
 
 
 if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    size = 512
-    res = 2000
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     torch.manual_seed(123)
 
-    x_vals = torch.linspace(0, size, res, device=device)
-    y_vals = torch.linspace(0, size, res, device=device)
-    x, y = torch.meshgrid(x_vals, y_vals, indexing='xy')
+    size = 500
+    res = 6000  # large grid
+    x_vals = torch.linspace(0, size, res)
+    y_vals = torch.linspace(0, size, res)
 
+    # Layer parameters
+    D_list = [2.2, 2.45, 2.45]
+    G_list = [1e-6, 8e-8, 1e-8]
+    M_list = [16, 32, 64]
     L = 100.0
     gamma = 1.5
     n_max = 10
 
-    z1 = weierstrass_mandelbrot_3d(x, y, D=2.2,  G=1e-6, L=L, gamma=gamma, M=16, n_max=n_max, device=device)
-    z2 = weierstrass_mandelbrot_3d(x, y, D=2.45, G=8e-8, L=L, gamma=gamma, M=32, n_max=n_max, device=device)
-    z3 = weierstrass_mandelbrot_3d(x, y, D=2.45, G=1e-8, L=L, gamma=gamma, M=64, n_max=n_max, device=device)
+    z = weierstrass_mandelbrot_chunked(
+        x_vals, y_vals, D_list, G_list, L, gamma, M_list, n_max,
+        device=device, chunk_size=1500
+    )
 
-    z = z1 * z2 * z3
-
-    # Normalize to [0,1]
-    z = (z - z.min()) / (z.max() - z.min())
-
-    # Move to CPU for plotting
-    z_cpu = z.cpu().numpy()
-
-    # Plot heightmap
+    # Plot terrain
     plt.figure(figsize=(8, 8))
-    plt.imshow(z_cpu, cmap="terrain", interpolation="lanczos")
-    plt.colorbar(label="Height")
-    plt.title("Weierstrass-Mandelbrot Fractal Terrain")
+    plt.imshow(z.numpy(), cmap='terrain', interpolation='lanczos')
+    plt.colorbar(label='Height')
+    plt.title('Seamless Chunked Weierstrass-Mandelbrot Fractal Terrain')
     plt.show()
