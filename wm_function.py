@@ -68,8 +68,8 @@ def weierstrass_mandelbrot_3d(x, y, D, G, L, gamma, M, n_max, device='cpu'):
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    size = 400
-    res = 1000
+    size = 512
+    res = 2000
     torch.manual_seed(123)
 
     x_vals = torch.linspace(0, size, res, device=device)
@@ -97,5 +97,4 @@ if __name__ == "__main__":
     plt.imshow(z_cpu, cmap="terrain", interpolation="lanczos")
     plt.colorbar(label="Height")
     plt.title("Weierstrass-Mandelbrot Fractal Terrain")
-    plt.axis("off")
     plt.show()
