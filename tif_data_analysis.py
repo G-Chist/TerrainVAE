@@ -1,33 +1,56 @@
 import rasterio
 import numpy as np
+import matplotlib.pyplot as plt
 
 path = "/home/matvei/PycharmProjects/TerrainVAE/dot-tif/output_USGS1m.tif"
 
 with rasterio.open(path) as src:
     elevation = src.read(1).astype(float)
-    elevation[elevation == src.nodata] = np.nan  # mask nodata
+    elevation[elevation == src.nodata] = np.nan
 
-import matplotlib.pyplot as plt
-
-# define crop size
 h, w = elevation.shape
-crop_h, crop_w = 256, 256
-start_h = (h - crop_h) // 2
-start_w = (w - crop_w) // 2
+win_h, win_w = 256, 256
+stride = 256
 
-crop = elevation[start_h:start_h+crop_h, start_w:start_w+crop_w]
+rows = (h - win_h) // stride + 1
+cols = (w - win_w) // stride + 1
 
-print("Shape:", crop.shape)
-print("Min crop:", np.nanmin(crop))
-print("Max crop:", np.nanmax(crop))
-print("Max - min:", np.nanmax(crop) - np.nanmin(crop))
-print("Mean crop:", np.nanmean(crop))
-print("Std dev:", np.nanstd(crop))
-print("NaN ratio:", np.isnan(crop).mean())
+def nan_stat(func):
+    out = np.full((rows, cols), np.nan)
+    for i in range(rows):
+        for j in range(cols):
+            patch = elevation[i*stride:i*stride+win_h, j*stride:j*stride+win_w]
+            out[i, j] = func(patch)
+    return out
 
-plt.figure(figsize=(8, 8))
-plt.imshow(crop, cmap="terrain")
-plt.title("1024x1024 Elevation Crop")
-plt.colorbar(label="Elevation (m)")
+max_map = nan_stat(np.nanmax)
+min_map = nan_stat(np.nanmin)
+range_map = max_map - min_map
+
+# plot 2 maps + 2 line charts
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+# top row: maps
+axes[0, 0].imshow(max_map, cmap="terrain")
+axes[0, 0].set_title("Max Height per Window")
+fig.colorbar(axes[0, 0].images[0], ax=axes[0, 0])
+
+axes[0, 1].imshow(range_map, cmap="plasma")
+axes[0, 1].set_title("Height Range (Max–Min)")
+fig.colorbar(axes[0, 1].images[0], ax=axes[0, 1])
+
+# bottom row: linear plots
+axes[1, 0].plot(np.nanmean(range_map, axis=0))
+axes[1, 0].set_title("Height Range per Column")
+axes[1, 0].set_xlabel("Column index")
+axes[1, 0].set_ylabel("Elevation Δ (m)")
+
+axes[1, 1].plot(np.nanmean(min_map, axis=0), label="Min")
+axes[1, 1].plot(np.nanmean(max_map, axis=0), label="Max")
+axes[1, 1].set_title("Min and Max Heights per Column")
+axes[1, 1].set_xlabel("Column index")
+axes[1, 1].set_ylabel("Elevation (m)")
+axes[1, 1].legend()
+
 plt.tight_layout()
 plt.show()
