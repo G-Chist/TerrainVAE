@@ -20,6 +20,7 @@ crop = elevation[start_h:start_h+crop_h, start_w:start_w+crop_w]
 print("Shape:", crop.shape)
 print("Min crop:", np.nanmin(crop))
 print("Max crop:", np.nanmax(crop))
+print("Max - min:", np.nanmax(crop) - np.nanmin(crop))
 print("Mean crop:", np.nanmean(crop))
 print("Std dev:", np.nanstd(crop))
 print("NaN ratio:", np.isnan(crop).mean())
