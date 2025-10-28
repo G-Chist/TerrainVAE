@@ -34,9 +34,11 @@ model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Load one input image from inputs/
-img_path = "example6.png"
+img_path = "example1.png"
 img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.img_size, hpcfg.img_size))
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
+x_orig = x.clone()  # save copy
+x = gaussian_blur(x, blur_size=25, sigma=3)  # blur user input
 x = x.to(device)
 
 print(terrain_counts_tensor(x.squeeze(), 10, device=device))
@@ -66,13 +68,18 @@ recon_scaled = recon_mix * 0.2
 fig = plt.figure(figsize=(20, 5))
 
 # 2D original
-ax1 = fig.add_subplot(1, 6, 1)
+ax0 = fig.add_subplot(1, 7, 1)
+ax0.imshow(x_orig.cpu().squeeze().numpy(), cmap='gray')
+ax0.set_title("Original Input")
+ax0.axis('off')
+
+ax1 = fig.add_subplot(1, 7, 2)
 ax1.imshow(x.cpu().squeeze().numpy(), cmap='gray')
-ax1.set_title("Original Input")
+ax1.set_title("Original Input (Blurred)")
 ax1.axis('off')
 
 # 2D reconstructed
-ax2 = fig.add_subplot(1, 6, 2)
+ax2 = fig.add_subplot(1, 7, 3)
 ax2.imshow(recon_mix, cmap='gray')
 ax2.set_title("Decoded Terrain (with Interpolation)")
 ax2.axis('off')
@@ -80,7 +87,7 @@ ax2.axis('off')
 # 3D views at different angles
 angles = [(30, 45), (60, 30), (15, 90), (75, 60)]
 for i, (elev, azim) in enumerate(angles):
-    ax = fig.add_subplot(1, 6, i + 3, projection='3d')
+    ax = fig.add_subplot(1, 7, i + 4, projection='3d')
     h, w = recon_scaled.shape
     X, Y = np.meshgrid(np.arange(w), np.arange(h))
     ax.plot_surface(X, Y, recon_scaled, cmap='terrain', linewidth=0, antialiased=False)
@@ -102,7 +109,7 @@ identifier = digits[-1] if digits else base
 
 # Save figure
 out_path = os.path.join("outputs", f"{identifier}_full.png")
-plt.savefig(out_path, bbox_inches="tight", dpi=150)
+plt.savefig(out_path, bbox_inches="tight", dpi=250)
 plt.close(fig)
 
 print(f"Saved visualization to {out_path}")
