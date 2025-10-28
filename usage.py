@@ -34,11 +34,12 @@ model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Load one input image from inputs/
-img_path = "example1.png"
+img_path = "example5.png"
 img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.img_size, hpcfg.img_size))
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
 x_orig = x.clone()  # save copy
-x = gaussian_blur(x, blur_size=25, sigma=3)  # blur user input
+x = gaussian_blur(x, blur_size=33, sigma=9)  # blur user input
+x = torch.minimum(x, x_orig)  # save pre-defined black boundaries, add some "slope" via blurring
 x = x.to(device)
 
 print(terrain_counts_tensor(x.squeeze(), 10, device=device))
