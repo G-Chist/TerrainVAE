@@ -14,13 +14,18 @@ def random_walk_image(brush_size=8, steps=3000):
     x, y = size // 2, size // 2
 
     count = 0
-    while count < steps:
+    while count < steps // 2:
         # draw filled black circle
         r = brush_size // 2
         draw.ellipse((x - r, y - r, x + r, y + r), fill=(0, 0, 0))
 
-        # random direction step
-        dx, dy = random.choice([(1,0),(-1,0),(0,1),(0,-1)])
+        # random direction step on x
+        dx, dy = random.choice([(1,0),(-1,0)])
+        x = max(0, min(size - 1, x + dx))
+        y = max(0, min(size - 1, y + dy))
+
+        # random direction step on y
+        dx, dy = random.choice([(0, 1), (0, -1)])
         x = max(0, min(size - 1, x + dx))
         y = max(0, min(size - 1, y + dy))
 
@@ -33,4 +38,4 @@ def random_walk_image(brush_size=8, steps=3000):
 
 
 if __name__ == "__main__":
-    random_walk_image(brush_size=16, steps=5000)
+    random_walk_image(brush_size=8, steps=1000)
