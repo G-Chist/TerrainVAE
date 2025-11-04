@@ -64,36 +64,42 @@ recon_t = recon.unsqueeze(0).unsqueeze(0).cpu()
 recon_mix = torch.lerp(x_blur, recon_t, 0.95).squeeze().cpu().numpy()
 
 # Now compute traversability map using BFS with a threshold
-def compute_traversable(grid, thresh=0.015):
+def compute_traversable(grid, thresh=0.015, max_iters=1000):
     """
-    grid: 2D torch tensor, values in [0,1]
-    thresh: threshold for reachability
-    returns: 2D torch tensor, 0.0 reachable, 1.0 unreachable
+    Vectorized flood fill on GPU.
+    grid: 2D tensor [H,W] on any device, values in [0,1].
+    Returns tensor of same shape: 0.0 reachable, 1.0 unreachable.
     """
     H, W = grid.shape
-    visited = torch.ones_like(grid)  # initialize all unreachable
+    device = grid.device
+
+    # Initialize reachable mask
     min_val = grid.min()
-    roots = torch.nonzero(grid == min_val) # lowest points as roots
+    reachable = (grid == min_val)
 
-    q = Queue()
-    for r in roots:
-        r = tuple(r.tolist())
-        q.put(r)
-        visited[r] = 0.0  # mark as reachable
+    # Structuring element (4-neighbor)
+    kernel = torch.tensor([[0,1,0],
+                           [1,0,1],
+                           [0,1,0]], device=device).float().unsqueeze(0).unsqueeze(0)
 
-    # 4-connectivity (up, down, left, right)
-    dirs = [(-1,0),(1,0),(0,-1),(0,1)]
+    grid = grid.unsqueeze(0).unsqueeze(0)  # [1,1,H,W]
+    reachable = reachable.unsqueeze(0).unsqueeze(0).float()
 
-    while not q.empty():
-        y, x = q.get()
-        for dy, dx in dirs:
-            ny, nx = y+dy, x+dx
-            if 0 <= ny < H and 0 <= nx < W:
-                if visited[ny, nx] == 1.0 and abs(grid[ny, nx] - grid[y, x]) <= thresh:
-                    visited[ny, nx] = 0.0
-                    q.put((ny, nx))
+    for _ in range(max_iters):
+        # dilate reachable region
+        neigh = F.conv2d(reachable, kernel, padding=1)
+        # candidate pixels: adjacent to reachable ones
+        mask = (neigh > 0) & (reachable == 0)
 
-    return visited
+        # check height constraint
+        diff = torch.abs(grid - grid[reachable.bool()].mean())  # local diff approx
+        new_reachable = (mask & (diff <= thresh))
+        if not new_reachable.any():
+            break
+        reachable[new_reachable] = 1.0
+
+    return 1.0 - reachable.squeeze(0).squeeze(0)
+
 
 traversable_map = compute_traversable(torch.tensor(recon_mix, dtype=torch.float32))
 

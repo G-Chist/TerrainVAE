@@ -8,6 +8,8 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
+from torchvision.utils import make_grid
+from PIL import Image, ImageDraw, ImageFont
 
 from betterconf import Config, field
 from betterconf.config import AbstractProvider
@@ -17,12 +19,14 @@ from terrain_dataset import TerrainDataset
 
 from classify_terrain_tensor import count_features_by_class, classify_terrain_tensor, terrain_counts_tensor
 
+from queue import Queue
+
 import json
 
 
 HYPERPARAMS_FILE = r"C:\Users\79140\PycharmProjects\TerrainVAE\hyperparams.json"
 
-checkpoint_path = "checkpoints/vae_cnn.pt"
+checkpoint_path = "checkpoints/vae_cnn_classic.pt"
 
 
 class JSONProvider(AbstractProvider):
@@ -94,10 +98,84 @@ try:
 except FileNotFoundError:
     print("Dataset not found!")
 
+n_fixed = min(8, len(dataset))  # fixed examples
+fixed_data = torch.stack([dataset[i] for i in range(n_fixed)]).unsqueeze(1).to(device)  # [n,1,H,W]
+
 # test_loader = torch.utils.data.DataLoader(dataset,
 #                                          batch_size=hpcfg.batch_size,
 #                                          shuffle=False,
 #                                          drop_last=True)
+
+
+# Compute traversability map using BFS with a threshold
+def compute_traversable(grid, thresh=0.1, max_iters=1000):
+    """
+    Vectorized flood fill on GPU.
+    grid: 2D tensor [H,W] on any device, values in [0,1].
+    Returns tensor of same shape: 0.0 reachable, 1.0 unreachable.
+    """
+    H, W = grid.shape
+    device = grid.device
+
+    # Initialize reachable mask
+    min_val = grid.min()
+    reachable = (grid == min_val)
+
+    # Structuring element (4-neighbor)
+    kernel = torch.tensor([[0,1,0],
+                           [1,0,1],
+                           [0,1,0]], device=device).float().unsqueeze(0).unsqueeze(0)
+
+    grid = grid.unsqueeze(0).unsqueeze(0)  # [1,1,H,W]
+    reachable = reachable.unsqueeze(0).unsqueeze(0).float()
+
+    for _ in range(max_iters):
+        # dilate reachable region
+        neigh = F.conv2d(reachable, kernel, padding=1)
+        # candidate pixels: adjacent to reachable ones
+        mask = (neigh > 0) & (reachable == 0)
+
+        # check height constraint
+        diff = torch.abs(grid - grid[reachable.bool()].mean())  # local diff approx
+        new_reachable = (mask & (diff <= thresh))
+        if not new_reachable.any():
+            break
+        reachable[new_reachable] = 1.0
+
+    return 1.0 - reachable.squeeze(0).squeeze(0)
+
+
+def batch_traversable(batch, thresh=0.1, max_iters=200):
+    """
+    batch: [B,1,H,W]
+    returns: [B,1,H,W]
+    """
+    B, _, H, W = batch.shape
+    device = batch.device
+
+    min_vals = batch.view(B, -1).min(dim=1)[0].view(B,1,1,1)
+    reachable = (batch == min_vals).float()
+
+    kernel = torch.tensor([[0,1,0],
+                           [1,0,1],
+                           [0,1,0]], device=device).float().view(1,1,3,3)
+
+    grid = batch.clone()
+
+    # Flatten batch into channels for grouped convolution
+    x = reachable.view(1, B, H, W)
+
+    for _ in range(max_iters):
+        neigh = F.conv2d(x, kernel.repeat(B,1,1,1), padding=1, groups=B)
+        mask = (neigh > 0) & (x == 0)
+        diff = torch.abs(grid - grid * reachable).masked_fill(~mask.view(B,1,H,W), float('inf'))
+        new = (mask.view(B,1,H,W) & (diff <= thresh)).float()
+        if new.sum() == 0:
+            break
+        reachable = torch.clamp(reachable + new, 0, 1)
+        x = reachable.view(1, B, H, W)
+
+    return 1.0 - reachable
 
 
 class CVAE(nn.Module):
@@ -222,8 +300,12 @@ optimizer = optim.Adam(model.parameters(), lr=hpcfg.learning_rate)
 
 
 # Reconstruction + KL divergence losses summed over all elements and batch
-def loss_function(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(recon_x, x, reduction='sum')
+def loss_function(recon_x, travmaps, x, mu, logvar, kt=0.5, kOriginalBCE=0.5):
+    BCE = F.binary_cross_entropy(recon_x, x, reduction='sum')*kOriginalBCE
+
+    x_binary = batch_traversable(x)  # original travmaps
+
+    BCE_travmaps = F.binary_cross_entropy(travmaps, x_binary, reduction='sum')
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -232,7 +314,52 @@ def loss_function(recon_x, x, mu, logvar):
 
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-    return BCE + KLD, BCE, KLD
+    return BCE + KLD + kt*BCE_travmaps, BCE, KLD, BCE_travmaps*kt
+
+
+def save_combined_with_labels(data, recon_batch, travmaps, save_path, n=8):
+    data = data[:n].cpu()
+    recon_batch = recon_batch[:n].detach().cpu()
+    travmaps = travmaps[:n].detach().cpu()
+    extracted = batch_traversable(data)
+
+    img_h, img_w = hpcfg.img_size, hpcfg.img_size
+    # Convert each tensor [1,H,W] to PIL Image
+    def tensor_to_pil(t):
+        t = t.squeeze(0).numpy() * 255
+        return Image.fromarray(t.astype('uint8')).convert("RGB")
+
+    rows = []
+    labels = ["Orig", "Recon", "Trav", "Extr"]
+    for i in range(n):
+        imgs = [
+            tensor_to_pil(data[i]),
+            tensor_to_pil(recon_batch[i]),
+            tensor_to_pil(travmaps[i]),
+            tensor_to_pil(extracted[i])
+        ]
+        # Stack vertically
+        row = Image.new("RGB", (img_w, img_h*4))
+        for j, im in enumerate(imgs):
+            row.paste(im, (0, j*img_h))
+        # Draw labels on left
+        draw = ImageDraw.Draw(row)
+        try:
+            font = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = ImageFont.load_default()
+        for j, lbl in enumerate(labels):
+            draw.text((0, j*img_h+2), lbl, fill=(255,0,0), font=font)
+        rows.append(row)
+
+    # Stack all rows horizontally
+    total_w = img_w * n
+    total_h = img_h * 4
+    combined = Image.new("RGB", (total_w, total_h))
+    for i, row in enumerate(rows):
+        combined.paste(row, (i*img_w, 0))
+
+    combined.save(save_path)
 
 
 def train(epoch):
@@ -242,10 +369,23 @@ def train(epoch):
         data = data.to(device)
         optimizer.zero_grad()
         recon_batch, mu, logvar, cond = model(data)
-        loss, _, KLD = loss_function(recon_batch, data, mu, logvar)
+
+        # compute traversability maps for all reconstructions in batch
+        with torch.no_grad():
+            traversability_maps = batch_traversable(recon_batch, thresh=0.1, max_iters=200)
+
+        loss, _, KLD, _ = loss_function(recon_batch, traversability_maps, data, mu, logvar)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
+
+        if batch_idx == 0:
+            n = n_fixed
+            traversability_maps = batch_traversable(recon_batch, thresh=0.1, max_iters=200)
+            save_combined_with_labels(data, recon_batch, traversability_maps,
+                                      r"C:\Users\79140\PycharmProjects\TerrainVAE\results\reconstruction_" + str(
+                                          epoch) + ".png", n=n)
+
         if batch_idx % hpcfg.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\t KLD: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -293,13 +433,13 @@ if __name__ == "__main__":
 
             sample = model.decode(sample, cond).cpu()
             save_image(sample.view(64, 1, hpcfg.img_size, hpcfg.img_size),
-                       'results/sample_' + str(epoch) + '.png')
+                       r"C:\Users\79140\PycharmProjects\TerrainVAE\results\sample_" + str(epoch) + '.png')
 
         torch.save({
             "epoch": epoch,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "loss": None,
-        }, f"checkpoints/vae_cnn.pt")
+        }, r"C:\Users\79140\PycharmProjects\TerrainVAE\checkpoints\vae_cnn.pt")
 
         print("Weights saved!")
