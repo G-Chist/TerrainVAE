@@ -35,7 +35,7 @@ model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Load one input image from inputs/
-img_path = "example2.png"
+img_path = "example5.png"
 img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.img_size, hpcfg.img_size))
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
 x_orig = x.clone()  # save copy
@@ -64,7 +64,7 @@ recon_t = recon.unsqueeze(0).unsqueeze(0).cpu()
 recon_mix = torch.lerp(x_blur, recon_t, 0.95).squeeze().cpu().numpy()
 
 # Now compute traversability map using BFS with a threshold
-def compute_traversable(grid, thresh=0.015, max_iters=1000):
+def compute_traversable(grid, thresh=0.1, max_iters=1000):
     """
     Vectorized flood fill on GPU.
     grid: 2D tensor [H,W] on any device, values in [0,1].
