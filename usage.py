@@ -7,8 +7,16 @@ from main import CVAE
 from main import hpcfg
 from PIL import Image
 import os
+from math import tan, radians
 from classify_terrain_tensor import count_features_by_class, classify_terrain_tensor, terrain_counts_tensor
 from queue import Queue
+
+
+def calculate_threshold(total_height, angle):
+    # angle in degrees
+    # total_height in meters
+    horizontal = 512.0 / 100.0  # 512/100 meters between pixels
+    return horizontal * tan(radians(angle)) / total_height  # derive threshold from acceptable slope angle
 
 
 def gaussian_kernel(size: int, sigma: float):
@@ -35,7 +43,7 @@ model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Load one input image from inputs/
-img_path = "example5.png"
+img_path = "example1.png"
 img = Image.open(os.path.join("inputs", img_path)).convert("L").resize((hpcfg.img_size, hpcfg.img_size))
 x = torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
 x_orig = x.clone()  # save copy
@@ -100,8 +108,9 @@ def compute_traversable(grid, thresh=0.1, max_iters=1000):
 
     return 1.0 - reachable.squeeze(0).squeeze(0)
 
+print(f"Acceptable threshold: {calculate_threshold(total_height=10, angle=20)}% = {calculate_threshold(total_height=10, angle=20)*10}m")
 
-traversable_map = compute_traversable(torch.tensor(recon_mix, dtype=torch.float32))
+traversable_map = compute_traversable(torch.tensor(recon_mix, dtype=torch.float32), thresh=calculate_threshold(total_height=10, angle=20))
 
 # Scale 3D heights
 recon_scaled = recon_mix * 0.2

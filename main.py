@@ -98,8 +98,11 @@ try:
 except FileNotFoundError:
     print("Dataset not found!")
 
-n_fixed = min(8, len(dataset))  # fixed examples
-fixed_data = torch.stack([dataset[i] for i in range(n_fixed)]).unsqueeze(1).to(device)  # [n,1,H,W]
+try:
+    n_fixed = min(8, len(dataset))  # fixed examples
+    fixed_data = torch.stack([dataset[i] for i in range(n_fixed)]).unsqueeze(1).to(device)  # [n,1,H,W]
+except NameError:
+    print("Variable dataset is not defined!")
 
 # test_loader = torch.utils.data.DataLoader(dataset,
 #                                          batch_size=hpcfg.batch_size,
