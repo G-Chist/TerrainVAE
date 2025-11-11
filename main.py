@@ -37,9 +37,14 @@ class JSONProvider(AbstractProvider):
             with open(self.HYPERPARAMS_FILE, "r") as f:
                 self._settings = json.load(f)
         except FileNotFoundError:
-            self.HYPERPARAMS_FILE = r"/home/matvei/PycharmProjects/TerrainVAE/hyperparams.json"
-            with open(self.HYPERPARAMS_FILE, "r") as f:
-                self._settings = json.load(f)
+            try:
+                self.HYPERPARAMS_FILE = r"/home/matvei/PycharmProjects/TerrainVAE/hyperparams.json"
+                with open(self.HYPERPARAMS_FILE, "r") as f:
+                    self._settings = json.load(f)
+            except FileNotFoundError:
+                self.HYPERPARAMS_FILE = r"hyperparams.json"
+                with open(self.HYPERPARAMS_FILE, "r") as f:
+                    self._settings = json.load(f)
 
     def get(self, name):
         return self._settings.get(name)

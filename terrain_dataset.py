@@ -26,7 +26,10 @@ class TerrainDataset(Dataset):
 
         # Read and preprocess
         img = read_image(img_path)  # [C,H,W], uint8 0-255
-        img = rgb_to_grayscale(img)  # [1,H,W]
+        if img.shape[0] == 4:  # Handle RGBA images
+            img = img[:3, :, :]
+        if img.shape[0] == 3:  # Handle RGB images
+            img = rgb_to_grayscale(img)  # [1,H,W]
         img = resize(img, [self.img_size, self.img_size])  # [1,img_size,img_size]
 
         # Apply rotation
