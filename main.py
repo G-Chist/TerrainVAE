@@ -430,25 +430,29 @@ def test(epoch):
 
 
 if __name__ == "__main__":
-    for epoch in range(1, hpcfg.epochs + 1):
-        train(epoch)
-        with torch.no_grad():
-            sample = torch.randn(64, hpcfg.latent_dim).to(device)
+    import traceback
+    try:
+        for epoch in range(1, hpcfg.epochs + 1):
+            train(epoch)
+            with torch.no_grad():
+                sample = torch.randn(64, hpcfg.latent_dim).to(device)
 
-            # supply condition manually
-            # example: random normalized terrain feature counts
-            cond = torch.rand(64, 10, device=device)
-            cond = cond / cond.sum(dim=1, keepdim=True)
+                # supply condition manually
+                # example: random normalized terrain feature counts
+                cond = torch.rand(64, 10, device=device)
+                cond = cond / cond.sum(dim=1, keepdim=True)
 
-            sample = model.decode(sample, cond).cpu()
-            save_image(sample.view(64, 1, hpcfg.img_size, hpcfg.img_size),
-                       os.path.join(results_path, "sample_" + str(epoch) + '.png'))
+                sample = model.decode(sample, cond).cpu()
+                save_image(sample.view(64, 1, hpcfg.img_size, hpcfg.img_size),
+                           os.path.join(results_path, "sample_" + str(epoch) + '.png'))
 
-        torch.save({
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "loss": None,
-        }, checkpoint_path)
+            torch.save({
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "loss": None,
+            }, checkpoint_path)
 
-        print("Weights saved!")
+            print("Weights saved!")
+    except Exception:
+        traceback.print_exc()

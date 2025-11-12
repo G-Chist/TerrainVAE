@@ -13,9 +13,11 @@ module load python/3.11.10
 
 module load cuda/12.4.0
 
+echo "Module loads done, running pip install"
+
 pip install -r requirements.txt
 
-python3 -m venv TerrainVAE_env       # create virtual environment
-source TerrainVAE_env/bin/activate
+echo "Pip installs done, running main"
 
-python3 main.py
+python3 -u -c "import torch; print('GPU visible:', torch.cuda.is_available(), flush=True)"
+python3 -u main_slurm.py
