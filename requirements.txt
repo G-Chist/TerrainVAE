@@ -1,0 +1,12 @@
+torch==1.11.0+cu115
+torchvision==0.12.0+cu115
+Pillow==11.3.0
+betterconf==3.1.0
+numpy==1.26.4
+matplotlib==3.10.7
+natsort==8.4.0
+imageio==2.37.2
+optuna==4.6.0
+rasterio==1.4.3
+scipy==1.15.3
+scikit-learn==1.7.2
