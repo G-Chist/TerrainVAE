@@ -24,9 +24,11 @@ from queue import Queue
 import json
 
 
-HYPERPARAMS_FILE = r"C:\Users\79140\PycharmProjects\TerrainVAE\hyperparams.json"
+HYPERPARAMS_FILE = "hyperparams.json"
 
 checkpoint_path = "checkpoints/vae_cnn_classic.pt"
+results_path = "results"
+os.makedirs(results_path, exist_ok=True)
 
 
 class JSONProvider(AbstractProvider):
@@ -391,8 +393,7 @@ def train(epoch):
             n = n_fixed
             traversability_maps = batch_traversable(recon_batch, thresh=0.1, max_iters=200)
             save_combined_with_labels(data, recon_batch, traversability_maps,
-                                      r"C:\Users\79140\PycharmProjects\TerrainVAE\results\reconstruction_" + str(
-                                          epoch) + ".png", n=n)
+                                      os.path.join(results_path, "reconstruction_" + str(epoch) + ".png"), n=n)
 
         if batch_idx % hpcfg.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\t KLD: {:.6f}'.format(
@@ -441,13 +442,13 @@ if __name__ == "__main__":
 
             sample = model.decode(sample, cond).cpu()
             save_image(sample.view(64, 1, hpcfg.img_size, hpcfg.img_size),
-                       r"C:\Users\79140\PycharmProjects\TerrainVAE\results\sample_" + str(epoch) + '.png')
+                       os.path.join(results_path, "sample_" + str(epoch) + '.png'))
 
         torch.save({
             "epoch": epoch,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "loss": None,
-        }, r"C:\Users\79140\PycharmProjects\TerrainVAE\checkpoints\vae_cnn.pt")
+        }, checkpoint_path)
 
         print("Weights saved!")

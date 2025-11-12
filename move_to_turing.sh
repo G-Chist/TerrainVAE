@@ -1,0 +1,1 @@
+scp -r "${PWD}" mshestopalov@turing.wpi.edu:~/terrain_vae/TerrainVAE/
