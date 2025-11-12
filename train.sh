@@ -11,8 +11,11 @@
 
 module load python/3.11.10
 
-module load cuda/11.5
+module load cuda/12.4.0
 
 pip install -r requirements.txt
+
+python3 -m venv TerrainVAE_env       # create virtual environment
+source TerrainVAE_env/bin/activate
 
 python3 main.py
