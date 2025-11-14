@@ -6,7 +6,7 @@
   "log_interval": "10",
   "img_size": "100",
   "data_path": "dataset/10kdatapoints_png",
-  "latent_dim": "52",
+  "latent_dim": "30",
   "nf_min": "8",
   "kernel1": "8",
   "kernel2": "10",

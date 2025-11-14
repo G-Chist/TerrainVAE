@@ -145,7 +145,10 @@ class CVAE(nn.Module):
         xh = self.enc4(self.enc3(self.enc2(self.enc1(x))))
         xh = torch.flatten(xh, start_dim=1)
         batch_size = x.shape[0]
-        cond = torch.stack([terrain_counts_tensor(x[i,0], num_classes=10, device=x.device) for i in range(batch_size)])
+        cond = torch.stack([
+            F.one_hot(torch.argmax(terrain_counts_tensor(x[i, 0], num_classes=10, device=x.device)), num_classes=10)
+            for i in range(batch_size)
+        ])
         xc = torch.cat([xh, cond], dim=1)
         mu = self.fc_mu(xc)
         logvar = self.fc_logvar(xc)

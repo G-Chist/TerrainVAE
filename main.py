@@ -261,8 +261,9 @@ class CVAE(nn.Module):
         xh = torch.flatten(xh, start_dim=1)
 
         batch_size = x.shape[0]
+
         cond = torch.stack([
-            terrain_counts_tensor(x[i, 0], num_classes=10, device=x.device)
+            F.one_hot(torch.argmax(terrain_counts_tensor(x[i, 0], num_classes=10, device=x.device)), num_classes=10)
             for i in range(batch_size)
         ])
 
