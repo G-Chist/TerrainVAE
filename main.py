@@ -224,8 +224,9 @@ class CVAE(nn.Module):
 
         # Conditional latent mappings
         cond_dim = 10
-        self.fc_mu = nn.Linear(self.flat_dim + cond_dim, hpcfg.latent_dim)
-        self.fc_logvar = nn.Linear(self.flat_dim + cond_dim, hpcfg.latent_dim)
+        self.fc_pre_latent = nn.Linear(self.flat_dim, hpcfg.pre_latent)
+        self.fc_mu = nn.Linear(hpcfg.pre_latent + cond_dim, hpcfg.latent_dim)  # append cond vector to encoder
+        self.fc_logvar = nn.Linear(hpcfg.pre_latent + cond_dim, hpcfg.latent_dim)
         self.fc_decode = nn.Linear(hpcfg.latent_dim + cond_dim, self.flat_dim)
 
         # Decoder (replaces ConvTranspose2d with Upsample + Conv2d)
@@ -260,6 +261,8 @@ class CVAE(nn.Module):
         xh = self.enc4(self.enc3(self.enc2(self.enc1(x))))
         xh = torch.flatten(xh, start_dim=1)
 
+        xh = F.leaky_relu(self.fc_pre_latent(xh))
+
         batch_size = x.shape[0]
 
         cond = torch.stack([
@@ -277,6 +280,7 @@ class CVAE(nn.Module):
             # Encode with injected condition vector
             xh = self.enc4(self.enc3(self.enc2(self.enc1(x))))
             xh = torch.flatten(xh, start_dim=1)
+            xh = F.leaky_relu(self.fc_pre_latent(xh))
             zc = torch.cat([xh, injected_cond], dim=1)
             mu = self.fc_mu(zc)
             logvar = self.fc_logvar(zc)

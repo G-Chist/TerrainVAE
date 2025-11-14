@@ -133,8 +133,9 @@ class CVAE(nn.Module):
             self.H, self.W = H, W
         self.flat_dim = nf*8*H*W
         cond_dim = 10
-        self.fc_mu = nn.Linear(self.flat_dim + cond_dim, hpcfg.latent_dim)
-        self.fc_logvar = nn.Linear(self.flat_dim + cond_dim, hpcfg.latent_dim)
+        self.fc_pre_latent = nn.Linear(self.flat_dim, hpcfg.pre_latent)
+        self.fc_mu = nn.Linear(hpcfg.pre_latent + cond_dim, hpcfg.latent_dim)  # append cond vector to encoder
+        self.fc_logvar = nn.Linear(hpcfg.pre_latent + cond_dim, hpcfg.latent_dim)
         self.fc_decode = nn.Linear(hpcfg.latent_dim + cond_dim, self.flat_dim)
         self.dec1 = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(nf*8, nf*4, 3,1,1), nn.BatchNorm2d(nf*4), nn.LeakyReLU())
         self.dec2 = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(nf*4, nf*2, 3,1,1), nn.BatchNorm2d(nf*2), nn.LeakyReLU())
@@ -144,6 +145,7 @@ class CVAE(nn.Module):
     def encode(self,x):
         xh = self.enc4(self.enc3(self.enc2(self.enc1(x))))
         xh = torch.flatten(xh, start_dim=1)
+        xh = F.leaky_relu(self.fc_pre_latent(xh))
         batch_size = x.shape[0]
         cond = torch.stack([
             F.one_hot(torch.argmax(terrain_counts_tensor(x[i, 0], num_classes=10, device=x.device)), num_classes=10)
