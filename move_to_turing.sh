@@ -1,1 +1,1 @@
-scp -r "${PWD}" mshestopalov@turing.wpi.edu:~/terrain_vae/TerrainVAE/
+rsync -r --exclude=".*" "${PWD}" mshestopalov@turing.wpi.edu:~/terrain_vae/TerrainVAE/

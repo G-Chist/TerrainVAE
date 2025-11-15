@@ -3,8 +3,8 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
-from main import CVAE
-from main import hpcfg
+from main_slurm import CVAE
+from main_slurm import hpcfg
 from PIL import Image
 import os
 from math import tan, radians
@@ -38,8 +38,8 @@ device = torch.device("cuda")
 
 # Load model and checkpoints
 model = CVAE().to(device)
-checkpoint = torch.load("checkpoints/vae_cnn.pt", map_location=device)
-model.load_state_dict(checkpoint["model_state_dict"])
+checkpoint = torch.load("fully_trained/checkpoints/vae_cnn_classic.pt", map_location=device)
+model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 model.eval()
 
 # Load one input image from inputs/
@@ -67,6 +67,7 @@ sigma = 1.5
 
 x_blur = gaussian_blur(x.cpu(), BLUR_SIZE, sigma)
 recon_t = recon.unsqueeze(0).unsqueeze(0).cpu()
+recon_t = F.interpolate(recon_t, size=(hpcfg.img_size, hpcfg.img_size), mode='bilinear', align_corners=False)
 
 # Interpolate between blurred input and reconstruction
 recon_mix = torch.lerp(x_blur, recon_t, 0.95).squeeze().cpu().numpy()
